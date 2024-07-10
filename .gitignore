@@ -1,0 +1,5 @@
+token.ini
+.vscode
+local.py
+**pycache**
+*asqlite
