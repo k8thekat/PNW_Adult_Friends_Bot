@@ -13,13 +13,16 @@ CREATE TABLE
 CREATE TABLE
     IF NOT EXISTS settings (
         guild_id INTEGER NOT NULL,
-        mod_role_id INTEGER DEFAULT NULL,
+        mod_role_id INTEGER DEFAULT 0,
         msg_timeout INTEGER DEFAULT 60,
-        verified_role_id INTEGER DEFAULT NULL,
-        welcome_channel_id INTEGER DEFAULT NULL,
-        rules_message_id INTEGER DEFAULT NULL,
-        notification_channel_id INTEGER DEFAULT NULL,
-        flirting_channel_id INTEGER DEFAULT NULL,
+        verified_role_id INTEGER DEFAULT 0,
+        welcome_channel_id INTEGER DEFAULT 0,
+        rules_message_id INTEGER DEFAULT 0,
+        notification_channel_id INTEGER DEFAULT 0,
+        flirting_channel_id INTEGER DEFAULT 0,
+        personal_intros_channel_id INTEGER DEFAULT 0,
+        roles_channel_id INTEGER DEFAULT 0,
+        infraction_log_channel_id INTEGER DEFAULT 0,
         FOREIGN KEY (guild_id) REFERENCES guilds (guild_id) ON DELETE CASCADE
     ) STRICT;
 
@@ -62,4 +65,14 @@ CREATE TABLE
         channel_id INTEGER NOT NULL,
         message_id INTEGER NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    ) STRICT;
+
+CREATE TABLE
+    IF NOT EXISTS role_embeds (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        guild_id INTEGER NOT NULL,
+        channel_id INTEGER NOT NULL,
+        message_id INTEGER NOT NULL,
+        UNIQUE (guild_id, channel_id, message_id)
     ) STRICT;

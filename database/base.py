@@ -5,7 +5,7 @@ from typing import Any
 
 import util.asqlite as asqlite
 
-__all__ = ("Base",)
+__all__: tuple[str, ...] = ("Base",)
 DB_FILENAME: str = "mrfriendly.db"
 DB_FILE_PATH: str = Path("/home/k8thekat/").joinpath(DB_FILENAME).as_posix()
 

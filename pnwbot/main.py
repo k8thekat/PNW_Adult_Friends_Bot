@@ -9,7 +9,8 @@ from sqlite3 import Row
 from typing import Any, Union
 
 import discord
-from discord import CategoryChannel, Intents, Message, TextChannel
+from discord import (CategoryChannel, Intents, Message, TextChannel,
+                     app_commands)
 from discord.ext import commands, tasks
 
 import util.asqlite as asqlite
@@ -48,10 +49,7 @@ async def _get_prefix(bot: "MrFriendly", message: Message):
     return wmo_func(bot, message)
 
 
-# TODO - Member verified event to send message in #general channel.
-# TODO - Role selection Embeds.
 # TODO - Handle Suggestions-Feedback channel - Remove someones suggestion after it is sent.
-# TODO - Infractions Handling.
 # TODO - Verification Channels for New Users (Use Category + User ID for channel name)
     # - ?verify command
 
@@ -59,12 +57,15 @@ class MrFriendly(commands.Bot):
     _logger: Logger = logging.getLogger(name=__name__)
     _database: Base = Base()
     _inactive_time = timedelta(days=180)  # How long a person has to have not been active in the server.
+    _bot_name: str = __qualname__
 
     def __init__(self) -> None:
         intents: Intents = Intents.default()
         intents.members = True
         intents.message_content = True
         self._prefix = "$"
+        self.owner_id = None
+
         self.NSFW_category: int | None = None  # NSFW Pics Discord Category ID
         self._guild_id: int = 1259645744420360243
         self._to_clean_channels: set[TextChannel] = set()
@@ -78,7 +79,7 @@ class MrFriendly(commands.Bot):
         self.delete_pictures.start()
         self.kick_unverified_users.start()
         self.kick_inactive_users.start()
-        self._guild_settings: Settings | None = await Settings.add_or_get_settings(guild_id=self._guild_id)
+        self._guild_settings: Settings = await Settings.add_or_get_settings(guild_id=self._guild_id)
 
     @tasks.loop(minutes=5)
     async def delete_pictures(self) -> None:
@@ -130,7 +131,7 @@ class MrFriendly(commands.Bot):
         await self.wait_until_ready()
 
         # We need to get our verified_role_id from the settings.
-        if self._guild_settings is None or self._guild_settings.verified_role_id is None:
+        if self._guild_settings.verified_role_id is None:
             self._logger.error(msg=f"Failed to find the Discord Guild Verified Role. | Guild ID: {self._guild_id}")
             return
 
@@ -214,6 +215,8 @@ class MrFriendly(commands.Bot):
     async def on_command(self, context: commands.Context) -> None:
         self._logger.info(msg=f'{context.author.name} used {context.command}...')
 
+    # async def on_error(self, context: commands.Context, error: commands.CommandError) -> None:
+
     async def on_command_error(self, context: commands.Context, error: commands.CommandError) -> None:
         if context.command is not None:
             if isinstance(error, commands.TooManyArguments):
@@ -230,10 +233,6 @@ class MrFriendly(commands.Bot):
                 self._logger.error(msg=f"Failed to find the Database User when updating their last active time. | Guild ID: {reaction.message.guild.id} | User ID: {user.id}")
                 return
             await _user.update_last_active_at()
-
-            if self._guild_settings is None:
-                self._logger.error(msg=f"Failed to find the Discord Guild Settings in on_reaction_add. | Guild ID: {reaction.message.guild.id}")
-                return
 
             if self.user is None:
                 self._logger.error(msg=f"Failed to find the Discord Bot User in on_reaction_add. | Guild ID: {reaction.message.guild.id}")
@@ -326,59 +325,114 @@ class MrFriendly(commands.Bot):
             return
         await _user.update_banned(banned=True)
 
+    async def on_member_update(self, before_member: discord.Member, after_member: discord.Member) -> None:
+        _settings: Settings = await Settings.add_or_get_settings(guild_id=after_member.guild.id)
+        if _settings.verified_role_id is None:
+            self._logger.warn(msg=f"""Guild settings for Verified Role ID is not set for this Guild.
+                              | Guild ID: {after_member.guild.id} Verified Role: {_settings.verified_role_id}""")
+            return
+        # check the before member if they have the verified role id.
+        if _settings.verified_role_id in [role.id for role in before_member.roles]:
+            return
+        # check if the after member has the verified role id.
+        elif _settings.verified_role_id not in [role.id for role in after_member.roles]:
+            return
+        else:
+            if _settings.welcome_channel_id is None:
+                self._logger.warn(msg=f"Guild settings for Welcome Channel ID is not set for this Guild. | Guild ID: {after_member.guild.id} Welcome Channel: {_settings.welcome_channel_id}")
+                return
+            _channel = after_member.guild.get_channel(_settings.welcome_channel_id)
+            if not isinstance(_channel, TextChannel):
+                return
 
-client = MrFriendly()
+            _intros_channel = None
+            _roles_channel = None
+            if _settings.personal_intros_channel_id is not None:
+                _intros_channel = after_member.guild.get_channel(_settings.personal_intros_channel_id)
+            if _settings.roles_channel_id is not None:
+                _roles_channel = after_member.guild.get_channel(_settings.roles_channel_id)
+            await _channel.send(content=f"""Hello everyone, please welcome {after_member.mention} to our community.
+                                Please head on over to our Roles channel {"<not set>" if _roles_channel is None else _roles_channel.mention} and select a role.
+                                You can also head on over to our Intros channel {'<not set>' if _intros_channel is None else _intros_channel.mention} and introduce yourself!""")
+            return
 
 
-@ client.hybrid_group(name='pnwkink')
-async def main_bot(context: commands.Context):
-    if context.author.guild_permissions.administrator == False:
-        return
-
-    if context.invoked_subcommand is None:
-        await context.send('Invalid command passed...', ephemeral=True, delete_after=client.Message_Timeout)
+Friendly = MrFriendly()
 
 
-@ main_bot.command(name='test')
-async def test(context: commands.Context, author_ref: str):
-    if context.author.guild_permissions.administrator == False:
-        return
-
-    return
+@Friendly.hybrid_group(name='prefix')
+async def prefix(context: commands.Context) -> None:
+    print()
 
 
-@ main_bot.command(name="sync")
+@prefix.command(name="add", help=f"Add a prefix to {Friendly._bot_name}", aliases=["prea", "pa"])
+@commands.is_owner()
+@commands.guild_only()
+async def add_prefix(context: commands.Context, prefix: str) -> Message:
+    if context.guild is not None:
+        _guild: discord.Guild = context.guild
+    else:
+        return await context.send(content=f"This command must be used inside a guild", delete_after=Friendly._guild_settings.msg_timeout)
+    await Friendly._database._execute(SQL="""INSERT INTO prefix(guild_id, prefix) VALUES(?, ?)""", parameters=(_guild.id, prefix.lstrip()))
+    return await context.send(content=f"Added the prefix `{prefix}` for {_guild.name}", delete_after=Friendly._guild_settings.msg_timeout)
+
+
+@prefix.command(name="delete", help=f"Delete a prefix from {Friendly._bot_name} for a guild.", aliases=["pred", "pd"])
+@commands.is_owner()
+@commands.guild_only()
+async def delete_prefix(context: commands.Context, prefix: str) -> Message:
+    if context.guild is not None:
+        _guild: discord.Guild = context.guild
+    else:
+        return await context.send(content=f"This command must be used inside a guild", delete_after=Friendly._guild_settings.msg_timeout)
+    await Friendly._database._execute(SQL="""DELETE FROM prefix WHERE guild_id = ? and prefix = ?""", parameters=(_guild.id, prefix.lstrip()))
+    return await context.send(content=f"Removed the prefix - `{prefix}`", delete_after=Friendly._guild_settings.msg_timeout)
+
+
+@prefix.command(name="clear", help=f"Clear all prefixes for {Friendly._bot_name} in a guild.", aliases=["prec", "pc"])
+@commands.is_owner()
+@commands.guild_only()
+async def clear_prefix(context: commands.Context) -> Message:
+    if context.guild is not None:
+        _guild: discord.Guild = context.guild
+    else:
+        return await context.send(content=f"This command must be used inside a guild", delete_after=Friendly._guild_settings.msg_timeout)
+    await Friendly._database._execute(SQL="""DELETE FROM prefix WHERE guild_id = ?""", parameters=(_guild.id,))
+    return await context.send(content=f"Removed all prefix's for {_guild.name}", delete_after=Friendly._guild_settings.msg_timeout)
+
+
+@Friendly.command(name="sync")
+@commands.has_permissions(administrator=True)
+@commands.guild_only()
 async def sync(context: commands.Context, local: bool = True, reset: bool = False):
-    if context.author.guild_permissions.administrator == False:
-        print("User not administrator")
-        return
-
     """Syncs Bot Commands to the current guild this command was used in."""
-    await context.defer()
+    await context.typing(ephemeral=True)
+    assert Friendly.user
+    assert context.guild
     if ((type(reset)) == bool and (reset == True)):
         if ((type(local) == bool) and (local == True)):
             # Local command tree reset
-            client.tree.clear_commands(guild=context.guild)
-            return await context.send('**WARNING** Resetting PNWKink Commands Locally...', ephemeral=True, delete_after=client.Message_Timeout)
+            Friendly.tree.clear_commands(guild=context.guild)
+            return await context.send(content=f"**WARNING** Resetting {Friendly.user.name} Commands Locally...", ephemeral=True, delete_after=Friendly._guild_settings.msg_timeout)
 
-        elif context.author.id == 479429344213860372:
-            # Global command tree reset, limited by LightningTH discord ID
-            client.tree.clear_commands(guild=None)
-            return await context.send('**WARNING** Resetting PNWKink Commands Globally...', ephemeral=True, delete_after=client.Message_Timeout)
+        elif context.author.id == Friendly.owner_ids:
+            # Global command tree reset, limited by Owner IDs
+            Friendly.tree.clear_commands(guild=None)
+            return await context.send(content=f"**WARNING** Resetting {Friendly.user.name} Commands Globally...", ephemeral=True, delete_after=Friendly._guild_settings.msg_timeout)
         else:
-            return await context.send('**ERROR** You do not have permission to reset the commands.', ephemeral=True, delete_after=client.Message_Timeout)
+            return await context.send(content="**ERROR** You do not have permission to reset the commands.", ephemeral=True, delete_after=Friendly._guild_settings.msg_timeout)
 
     if ((type(local) == bool) and (local == True)):
         # Local command tree sync
-        client.tree.copy_global_to(guild=context.guild)
-        await client.tree.sync(guild=context.guild)
-        return await context.send(f'Successfully Sync\'d PNWKink Commands to {context.guild.name}...', ephemeral=True, delete_after=client.Message_Timeout)
+        Friendly.tree.copy_global_to(guild=context.guild)
+        await Friendly.tree.sync(guild=context.guild)
+        return await context.send(content=f"Successfully Sync\'d {Friendly.user.name} Commands to {context.guild.name}...", ephemeral=True, delete_after=Friendly._guild_settings.msg_timeout)
 
-    elif context.author.id == self.owner:
-        # Global command tree sync, limited by LightningTH discord ID
-        await client.tree.sync(guild=None)
-        await context.send('Successfully Sync\'d PNWKink Commands Globally...', ephemeral=True, delete_after=client.Message_Timeout)
+    elif context.author.id == Friendly.owner_ids:
+        # Global command tree sync, limited by Owner IDs.
+        await Friendly.tree.sync(guild=None)
+        await context.send(content=f"Successfully Sync\'d {Friendly.user.name} Commands Globally...", ephemeral=True, delete_after=Friendly._guild_settings.msg_timeout)
 
 
 TOKEN = load_ini()
-client.run(token=TOKEN)
+Friendly.run(token=TOKEN)

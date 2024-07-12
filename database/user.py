@@ -10,7 +10,7 @@ import util.asqlite as asqlite
 
 from .base import DB_FILE_PATH, Base
 
-__all__: tuple[str, str, str] = ("User", "Leave", "Infraction")
+__all__: tuple[str, ...] = ("User", "Leave", "Infraction", "Image",)
 
 
 @dataclass
@@ -184,10 +184,20 @@ class User(Base):
         return set([Infraction(**row) for row in res])
 
     @exists
-    async def remove_infraction(self, infraction: Infraction) -> set[Infraction]:
+    async def remove_infraction(self, infraction: Infraction | None = None, id: int | None = None) -> set[Infraction]:
+        if infraction is None and id is None:
+            raise ValueError("Either infraction or id must be provided")
+
+        if infraction is not None:
+            id = infraction.id
+
         await self._execute(SQL=f"""DELETE FROM infractions WHERE id=?""",
-                            parameters=(infraction.id,))
-        self.user_infractions.remove(infraction)
+                            parameters=(id,))
+
+        for infraction in self.user_infractions:
+            if infraction.id == id:
+                self.user_infractions.remove(infraction)
+
         return self.user_infractions
 
     @exists
