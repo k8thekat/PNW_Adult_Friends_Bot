@@ -6,8 +6,6 @@ from typing import Any
 import util.asqlite as asqlite
 
 __all__: tuple[str, ...] = ("Base",)
-DB_FILENAME: str = "mrfriendly.db"
-DB_FILE_PATH: str = Path("/home/k8thekat/").joinpath(DB_FILENAME).as_posix()
 
 
 class Base:
@@ -18,8 +16,9 @@ class Base:
     Will raise `sqlite3.IntegrityError` if value does not match column type.
     """
     dir: Path = Path(__file__).parent
-    # DB_FILE_PATH: str = dir.joinpath(DB_FILENAME).as_posix()
-    SCHEMA_FILE_PATH: str = Path(__file__).parent.joinpath("schema.sql").as_posix()
+    DB_FILENAME: str = "mrfriendly.db"
+    DB_FILE_PATH: str = Path(dir).joinpath(DB_FILENAME).as_posix()
+    SCHEMA_FILE_PATH: str = Path(dir).joinpath("schema.sql").as_posix()
     _logger: logging.Logger = logging.getLogger()
     _pool: asqlite.Pool | None
 
@@ -44,7 +43,7 @@ class Base:
             Row | None: A Row.
         """
         if self._pool is None:
-            self._pool = await asqlite.create_pool(database=DB_FILE_PATH)
+            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -64,7 +63,7 @@ class Base:
         """
 
         if self._pool is None:
-            self._pool = await asqlite.create_pool(database=DB_FILE_PATH)
+            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -80,7 +79,7 @@ class Base:
             SQL (str): The SQL statement.
         """
         if self._pool is None:
-            self._pool = await asqlite.create_pool(database=DB_FILE_PATH)
+            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -97,7 +96,7 @@ class Base:
             SQL (str): The SQL statement.
         """
         if self._pool is None:
-            self._pool = await asqlite.create_pool(database=DB_FILE_PATH)
+            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -111,7 +110,9 @@ class Base:
         Creates the DATABASE tables from `SCHEMA_FILE_PATH`. \n
 
         """
+        self._logger.info(f"CREATE TABLE {self.SCHEMA_FILE_PATH}")
+        self._logger.info(f"{self.dir}")
         with open(file=self.SCHEMA_FILE_PATH, mode="r") as f:
-            async with asqlite.connect(database=DB_FILE_PATH) as db:
+            async with asqlite.connect(database=self.DB_FILE_PATH) as db:
                 async with db.cursor() as cur:
                     await cur.executescript(sql_script=f.read())

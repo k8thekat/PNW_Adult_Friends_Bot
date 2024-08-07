@@ -1,5 +1,5 @@
 #!/bin/bash
-SERVICE="pnwkink.py"
+SERVICE="pnwbot/main.py"
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 echo $SCRIPT_DIR
 cd $SCRIPT_DIR
@@ -10,6 +10,6 @@ if test -f ${SERVICE}.pid; then
     fi
 fi
 
-python3 -u ./${SERVICE} > ${SERVICE}.log 2>&1 &
+python -u ./${SERVICE} >/dev/null &
 echo $! > ${SERVICE}.pid
 echo "${SERVICE} is starting"

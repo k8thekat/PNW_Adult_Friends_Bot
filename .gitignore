@@ -3,3 +3,6 @@ token.ini
 local.py
 **pycache**
 *asqlite
+*logs
+pnwbot/main.py.pid
+pnwbot/database/mrfriendly.db

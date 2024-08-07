@@ -27,33 +27,33 @@ CREATE TABLE
     ) STRICT;
 
 CREATE TABLE
-    IF NOT EXISTS infractions (
-        id INTEGER PRIMARY KEY,
-        guild_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
-        reason_msg_link TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        FOREIGN KEY (guild_id) REFERENCES guilds (guild_id) ON DELETE CASCADE,
-        FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
-        UNIQUE (user_id, reason_msg_link)
-    ) STRICT;
-
-CREATE TABLE
     IF NOT EXISTS users (
+        user_id INTEGER NOT NULL PRIMARY KEY,
         guild_id INTEGER NOT NULL,
-        user_id INTEGER NOT NULL,
-        created_at INTEGER NOT NULL,
+        created_at REAL NOT NULL,
         verified INTEGER NOT NULL DEFAULT 0,
-        last_active_at INTEGER NOT NULL,
+        last_active_at REAL NOT NULL,
         banned INTEGER NOT NULL DEFAULT 0,
         cleaned INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (guild_id) REFERENCES guilds (guild_id) ON DELETE CASCADE
     ) STRICT;
 
 CREATE TABLE
+    IF NOT EXISTS infractions (
+        id INTEGER PRIMARY KEY,
+        guild_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        reason_msg_link TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        FOREIGN KEY (guild_id) REFERENCES guilds (guild_id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
+        UNIQUE (user_id, reason_msg_link)
+    ) STRICT;
+
+CREATE TABLE
     IF NOT EXISTS user_leaves (
         user_id INTEGER NOT NULL,
-        created_at INTEGER NOT NULL,
+        created_at REAL NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
     ) STRICT;
 

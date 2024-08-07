@@ -32,7 +32,7 @@ if version == cl_ver:
 # Verify that the current branch is `developer`.
 output: bytes = subprocess.check_output(["git", "branch"])
 branch: str = output.decode("utf-8").strip("*").strip().split("\n")[0]
-if branch != "developer":
+if branch is not "developer":
     raise RuntimeError(f"Current branch is not `developer`: {branch}")
 
 # Verify that there are new commits.

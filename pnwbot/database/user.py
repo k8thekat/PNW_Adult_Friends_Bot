@@ -8,7 +8,7 @@ from typing import Any, Literal, Self, Union
 
 import util.asqlite as asqlite
 
-from .base import DB_FILE_PATH, Base
+from .base import Base
 
 __all__: tuple[str, ...] = ("User", "Leave", "Infraction", "Image",)
 
@@ -105,25 +105,26 @@ class User(Base):
 
     @classmethod
     async def add_or_get_user(cls, guild_id: int, user_id: int) -> Self | None:
-        async with asqlite.connect(database=DB_FILE_PATH) as conn:
+        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
             _exists: Row | None = await conn.fetchone(f"""SELECT * FROM users WHERE guild_id = ? AND user_id = ?""", (guild_id, user_id))
             if _exists is None:
+                _time: float = datetime.now().timestamp()
                 res: Row | None = await conn.fetchone(
-                    """INSERT INTO * users(guild_id, user_id, created_at) VALUES(?, ?, ?) RETURNING *""",
-                    (guild_id, user_id, datetime.now().timestamp()),)
+                    """INSERT INTO users(guild_id, user_id, created_at, last_active_at) VALUES(?, ?, ?, ?) RETURNING *""",
+                    (guild_id, user_id, _time, _time))
                 return cls(**res) if res is not None else None
             else:
                 return cls(**_exists)
 
     @classmethod
     async def get_banned_users(cls, guild_id: int) -> list[Self]:
-        async with asqlite.connect(database=DB_FILE_PATH) as conn:
+        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
             res: list[Row] = await conn.fetchall(f"""SELECT * FROM users WHERE guild_id = ? AND banned = 1""", (guild_id,))
             return [cls(**row) for row in res]
 
     @classmethod
     async def get_unclean_users(cls, guild_id: int) -> list[Self]:
-        async with asqlite.connect(database=DB_FILE_PATH) as conn:
+        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
             res: list[Row] = await conn.fetchall(f"""SELECT * FROM users WHERE guild_id = ? AND cleaned = 0""", (guild_id,))
             return [cls(**row) for row in res]
 
