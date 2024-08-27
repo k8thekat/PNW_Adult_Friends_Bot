@@ -4,11 +4,12 @@ from re import Match, Pattern, compile
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 import discord
+import discord.http
 from database import *
 from database.settings import Role_Embed_Info
 from discord import (ButtonStyle, Embed, Emoji, Message, PartialEmoji,
                      app_commands)
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import Button, View
 from main import _get_guild_settings
 
@@ -42,10 +43,10 @@ class AutoRole(commands.Cog):
     _logger: logging.Logger = logging.getLogger()
 
     def __init__(self, bot: "MrFriendly") -> None:
-        self._bot = bot
+        self._bot: "MrFriendly" = bot
         self._logger.info(msg=f"{self.__class__.__name__} Cog has been loaded!")
 
-    REACTION_ROLES_BUTTON_REGEX: Pattern[str] = compile(r'RR::BUTTON::(?P<ROLE_ID>\d+)')
+    REACTION_ROLES_BUTTON_REGEX: Pattern[str] = compile(pattern=r'RR::BUTTON::(?P<ROLE_ID>\d+)')
     AGE_ROLE_GROUP: list[int] = [1259692047036715128, 1259660826915110942, 1259660900445454378, 1259661047602610176, 1259661129299267705]
     SEX_ORIENTATION_ROLE_GROUP: list[int] = [1259661460804599929, 1259661532095320074, 1259661605902483536, 1259661655319515236, 1259661691453571134, 1259661715004588134, 1259661742066110585, 1259661787758858304]
     GENDER_ROLE_GROUP: list[int] = [1259650732005789706, 1259650866835619912, 1259650920858386472, 1259650994707628052, 1259651332575596544, 1259683302760255558]
@@ -53,6 +54,41 @@ class AutoRole(commands.Cog):
     RELATIONSHIP_ROLE_GROUP: list[int] = [1259661152309215373, 1259661187155755139, 1259661227911680070, 1259661289433727026]
     DM_ROLE_GROUP: list[int] = [1259698813795565649, 1259698893558517822, 1259698953105051728]
     LOCATION_ROLE_GROUP: list[int] = [1260380394872635392, 1260380525860880515, 1260380565731934339, 1260380601953816669]
+
+    async def cog_load(self) -> None:
+        self.validate_role_embeds.start()
+
+    @tasks.loop(minutes=1, reconnect=True)
+    async def validate_role_embeds(self) -> None:
+        """
+        Validates the Role Embeds we generated and stored in our database.
+        """
+
+        for guild in self._bot.guilds:
+            try:
+                _guild_embeds: list[Role_Embed_Info] = await Role_Embed_Info.get_all_role_embeds(guild_id=guild.id)
+            except ValueError:
+                self._logger.warn(msg=f"No Role Embeds in this Guild | Guild ID: {guild.id}")
+                continue
+
+            for embed in _guild_embeds:
+                _guild: discord.Guild | None = self._bot.get_guild(embed.guild_id)
+                if _guild is None:
+                    continue
+                _channel = _guild.get_channel(embed.channel_id)
+                if _channel is None or not isinstance(_channel, discord.TextChannel):
+                    continue
+                try:
+                    await _channel.fetch_message(embed.message_id)
+                except discord.NotFound:
+                    await Role_Embed_Info.remove_role_embed(embed_info=embed)
+                    self._logger.warn(msg=f"Removed a Role Embed Info Message from the Database. | Embed ID: {embed.id} | Guild ID: {guild.id}")
+                except discord.HTTPException:
+                    self._logger.error(msg=f"Failed to find a Role Embed Info Message `HTTPException`, {embed.guild_id} {embed.channel_id} {embed.message_id} | Guild ID: {guild.id}")
+                    continue
+                except Exception as e:
+                    await Role_Embed_Info.remove_role_embed(embed_info=embed)
+                    self._logger.error(msg=f"Failed to find a Role Embed Info Message removing from the Database. | Embed ID: {embed.guild_id} Embed Channel ID: {embed.channel_id} Embed Message ID: {embed.message_id} | Guild ID: {guild.id}")
 
     async def autocomplete_role_embeds(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[int]]:
         assert interaction.guild
@@ -90,14 +126,19 @@ class AutoRole(commands.Cog):
                 _choices.append(app_commands.Choice(name=_name, value=_value))
         return _choices
 
+    @commands.Cog.listener(name="on_message")
+    async def on_message(self, message: discord.Message):
+        if message.guild is None:
+            return
+        if len(message.embeds) != 0:
+            # Keep our Embed message cache.
+            self._bot._cache[message.id] = message
+
     @commands.Cog.listener(name="on_raw_message_delete")
     async def on_raw_message_delete_embed_tracker(self, payload: discord.RawMessageDeleteEvent) -> None:
-        print("RAW MESSAGE DELETE AUTOROLE.PY")
         if payload.message_id not in self._bot._cache:
             return
-
         _cache_message: Message = self._bot._cache[payload.message_id]
-        print("CACHED MESSAGE FOUND AUTOROLE.PY")
         if payload.guild_id is not None:
             # Remove our Role Embeds first.
             _role_embeds: list[Role_Embed_Info] = await Role_Embed_Info.get_all_role_embeds(guild_id=payload.guild_id)

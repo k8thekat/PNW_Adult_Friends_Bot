@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 class InfractionEmbed(Embed):
     def __init__(self, moderator: Union[discord.User, discord.Member], infraction: Infraction, reason: str, user: Union[discord.User, discord.Member]) -> None:
-        super().__init__(title=f"{Emojis.Ticket} __{user.display_name}__ | Infraction ID: **#{infraction.id}**", color=discord.Color.red())
+        super().__init__(title=f"{Emojis.ticket} __{user.display_name}__ | Infraction ID: **#{infraction.id}**", color=discord.Color.red())
         self.description = reason
         self.timestamp = infraction.created_at
         self.set_footer(text=f"Moderator: {moderator}")
@@ -109,7 +109,7 @@ class InfractionsCog(commands.Cog):
             return await interaction.response.send_message(content=f"Unable to find or create {user} in the database.", ephemeral=True)
 
         await _user.remove_infraction(id=infraction)
-        return await interaction.response.send_message(content=f"{Emojis.Outbox_tray} | Removed **Infraction #{infraction}** for {user}.", ephemeral=True, delete_after=_settings.msg_timeout)
+        return await interaction.response.send_message(content=f"{Emojis.outbox_tray} | Removed **Infraction #{infraction}** for {user}.", ephemeral=True, delete_after=_settings.msg_timeout)
 
     @app_commands.command(name="list_infractions")
     @commands.guild_only()
@@ -124,7 +124,7 @@ class InfractionsCog(commands.Cog):
         _infractions: set[Infraction] = await _user.get_infractions()
         if len(_infractions) == 0:
             return await interaction.response.send_message(content=f"{user.name} has no infractions.", ephemeral=True, delete_after=_settings.msg_timeout)
-        _content: str = f"{Emojis.Ticket} | Infractions for **{user}**:\n"
+        _content: str = f"{Emojis.ticket} | Infractions for **{user}**:\n"
         for infraction in _infractions:
             _content += f"> Infraction #{infraction.id} -> {infraction.reason_msg_link}"
         return await interaction.response.send_message(content=_content, ephemeral=True, delete_after=_settings.msg_timeout)

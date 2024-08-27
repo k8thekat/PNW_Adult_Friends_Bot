@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 class SettingsEmbed(Embed):
     def __init__(self, data: Settings, title: str, description: str, color: Color) -> None:
-        super().__init__(title=f"{Emojis.Wrench} | {title} | {Emojis.Wrench} ", description=description, color=color)
+        super().__init__(title=f"{Emojis.wrench} | {title} | {Emojis.wrench} ", description=description, color=color)
         for field in fields(class_or_instance=data):
             if "channel_id" in field.name:
                 self.add_field(name=f"__{field.name}__", value=f"<#{getattr(data, field.name)}>")

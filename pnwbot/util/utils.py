@@ -1,9 +1,15 @@
-import inspect
 import importlib
-import types
+import inspect
 import os
-import aiofiles
 import re
+import types
+from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
+from typing import Mapping, TypedDict
+
+import aiofiles
+from database.settings import Settings
+
 
 def reload_module_dependencies(module_path: str, /) -> set[str]:
     """Reloads all dependencies of a module with importlib
@@ -43,7 +49,6 @@ def reload_module_dependencies(module_path: str, /) -> set[str]:
     return set(out)
 
 
-
 async def count_lines(path: str, filetype: str = ".py", skip_venv: bool = True) -> int:
     lines: int = 0
     for i in os.scandir(path):
@@ -70,3 +75,44 @@ async def count_others(path: str, filetype: str = ".py", file_contains: str = "d
         elif i.is_dir():
             line_count += await count_others(i.path, filetype, file_contains)
     return line_count
+
+
+@dataclass()
+class MarkDownPlaceHolders():
+    """When accessing Database Settings always use `_settings` as the variable name.\n
+    - **member**: `discord.Guild.Member`
+    -
+    """
+    member: str = "member.mention"
+    moderator_role: str = "guild.get_role(_settings.mod_role_id)"
+    rules_channel: str = "guild.get_channel(_settings.rules_message_id)"
+    roles_channel: str = "guild.get_channel(_settings.roles_channel_id)"
+    intro_channel: str = "guild.get_channel(_settings.personal_intros_channel_id)"
+
+    def to_dict(self) -> dict[str, str]:
+        return {key: str(object=value) for key, value in asdict(obj=self).items()}
+
+
+async def parse_markdown(path: str, placeholder_struct: MarkDownPlaceHolders = MarkDownPlaceHolders(), replace_placeholders: bool = True) -> str:
+    """
+    Parse a markdown file to replace keywords from the .md file with attributes of `MarkDownPlaceHolders`.
+
+    Returns the contents as an `f-string`.
+
+    Args:
+        path (str): Will resolve path relative to `__file__.parent()`.
+        placeholder_struct (MarkDownPlaceHolders): The Dataclass structure to use for Placeholder swaps.
+        replace_placeholders (bool, optional): Controls the replacement of the placeholders. Defaults to True.
+
+    Returns:
+        str: f-string of the file contents with or without the placeholders replaced.
+    """
+    _file: Path = Path(__file__).parent.joinpath(path).resolve()
+
+    _contents = ""
+    if _file.is_file():
+        if replace_placeholders is True:
+            _contents: str = _file.read_text(encoding="utf-8").format(**placeholder_struct.to_dict())
+        else:
+            _contents: str = _file.read_text(encoding="utf-8")
+    return f"{_contents}"

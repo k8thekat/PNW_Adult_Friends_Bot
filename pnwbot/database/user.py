@@ -124,6 +124,10 @@ class User(Base):
 
     @classmethod
     async def get_unclean_users(cls, guild_id: int) -> list[Self]:
+        """
+        Get's a list of Database User classes that have not been cleaned. \n
+        **AKA** - Images left in the Discord Server.
+        """
         async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
             res: list[Row] = await conn.fetchall(f"""SELECT * FROM users WHERE guild_id = ? AND cleaned = 0""", (guild_id,))
             return [cls(**row) for row in res]
@@ -233,6 +237,9 @@ class User(Base):
 
     @exists
     async def update_cleaned(self, cleaned: bool) -> bool:
+        """
+        Update the Database Users cleaned status.
+        """
         await self._fetchone(SQL=f"""UPDATE users SET cleaned = ? WHERE user_id = ?""", parameters=(cleaned, self.user_id))
         self.cleaned = cleaned
         return self.cleaned

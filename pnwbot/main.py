@@ -16,9 +16,9 @@ import util.asqlite as asqlite
 from database import *
 from database.settings import Settings
 from database.user import Image, User
-from discord import (CategoryChannel, Intents, Message, TextChannel,
-                     app_commands)
+from discord import CategoryChannel, Intents, Message, TextChannel
 from discord.ext import commands, tasks
+from util.commandtree import MrFriendlyCommandTree
 from util.emoji_lib import Emojis
 
 TOKEN: str
@@ -66,12 +66,8 @@ async def _get_prefix(bot: "MrFriendly", message: Message):
 # TODO - Handle Suggestions-Feedback channel - Remove someones suggestion after it is sent.
 # TODO - Verification Channels for New Users (Use Category + User ID for channel name)
     # - ?verify command
-# TODO - Keep a cache of User Images
-    # - Track Role Embeds/Verify they still exist; if not update DB.
 # TODO - Add an About/Stats command.
     # - See Kuma_Kuma
-# TODO - Member Leaves - Delete all of their content with attachments. See -> member.history.
-    # - Possible remove message content.
 
 class MrFriendly(commands.Bot):
     _logger: Logger = logging.getLogger(name=__name__)
@@ -92,21 +88,21 @@ class MrFriendly(commands.Bot):
         self._guild_id: int = 1259645744420360243  # PNW Adult Friends
         self._to_clean_channels: set[TextChannel] = set()
 
-        super().__init__(intents=intents, command_prefix=_get_prefix)
+        super().__init__(intents=intents,
+                         command_prefix=_get_prefix,
+                         tree_cls=MrFriendlyCommandTree,
+                         strip_after_prefix=True)
 
     async def on_ready(self) -> None:
         self._logger.info(msg=f'Logged on as {self._bot_name}!')
-        print("CREATED CACHE TASK")
-        await asyncio.create_task(self.build_cache())
-        print("FINISHED CACHE TASK")
+        await asyncio.create_task(coro=self.build_cache())
 
     async def setup_hook(self) -> None:
         await self._database._create_tables()
         await self.setup_attributes()
         self.delete_pictures.start()
         self.kick_unverified_users.start()
-        self.kick_inactive_users.start()
-        # self._guild_settings: Settings = await Settings.add_or_get_settings(guild_id=self._guild_id)
+        # self.kick_inactive_users.start() #! Disabling Until the server is popular. 8/25/2024
         await self.load_extension(name="cogs.infractions")
         await self.load_extension(name="cogs.autorole")
         await self.load_extension(name="cogs.settings")
@@ -118,7 +114,7 @@ class MrFriendly(commands.Bot):
         """
         _guild: discord.Guild | None = self.get_guild(self._guild_id)
         if _guild is None:
-            self._logger.error(msg=f"Failed to find the Discord Guild. | Guild ID: {self._guild_id}")
+            self._logger.error(msg=f"Failed to find the Discord Guild in delete_pictures. | Guild ID: {self._guild_id}")
             return
 
         if self._NSFW_category is None:
@@ -153,16 +149,12 @@ class MrFriendly(commands.Bot):
         """
         Kicks users that haven't verified in 7 days.
         """
+        self._logger.info(msg="Performing kick_unverified_users loop.")
         # We need to get our verified_role_id from the settings.
         _settings: Settings = await _get_guild_settings(guild_id=self._guild_id)
-
-        if _settings.verified_role_id is None:
-            self._logger.error(msg=f"Failed to find the Discord Guild Verified Role. | Guild ID: {self._guild_id}")
-            return
-
         _guild: discord.Guild | None = self.get_guild(self._guild_id)
         if _guild is None:
-            self._logger.error(msg=f"Failed to find the Discord Guild. | Guild ID: {self._guild_id}")
+            self._logger.error(msg=f"Failed to find the Discord Guild in kick_unverified_user. | Guild ID: {self._guild_id}")
             return
 
         if self.user is not None:
@@ -178,7 +170,13 @@ class MrFriendly(commands.Bot):
             join_time_len: int = (discord.utils.utcnow() - member.joined_at).days
             res: discord.Role | None = member.get_role(_settings.verified_role_id)
             if (res is None) and join_time_len >= 7:
-                await member.kick(reason="Failed to verify within 7 days")
+                try:
+                    await member.kick(reason="Failed to verify within 7 days")
+                    self._logger.info(msg=f"Kicked {member} for not verifying in 7 days. | Guild ID: {self._guild_id}")
+                except discord.errors.Forbidden:
+                    self._logger.error(msg=f"Unable to kick {member} due to Missing Permissions")
+                except Exception as e:
+                    self._logger.error(msg=f"Unable to kick {member} due to {e}")
                 # delay between kicks
                 await asyncio.sleep(delay=1)
 
@@ -189,7 +187,7 @@ class MrFriendly(commands.Bot):
         """
         _guild: discord.Guild | None = self.get_guild(self._guild_id)
         if _guild is None:
-            self._logger.error(msg=f"Failed to find the Discord Guild. | Guild ID: {self._guild_id}")
+            self._logger.error(msg=f"Failed to find the Discord Guild in kick_inactive_users. | Guild ID: {self._guild_id}")
             return
 
         if self.user is not None:
@@ -203,7 +201,13 @@ class MrFriendly(commands.Bot):
             if _user is None:
                 continue
             if _user.last_active_at < _active_by:
-                await member.kick(reason="Inactive for over 6 months.")
+                try:
+                    await member.kick(reason="Inactive for over 6 months.")
+                    self._logger.info(msg=f"Kicked {member} for being inactive for 6 months. | Guild ID: {self._guild_id}")
+                except discord.errors.Forbidden:
+                    self._logger.error(msg=f"Unable to kick {member} due to Missing Permissions")
+                except Exception as e:
+                    self._logger.error(msg=f"Unable to kick {member} due to {e}")
                 # delay between kicks
                 await asyncio.sleep(delay=1)
 
@@ -228,8 +232,12 @@ class MrFriendly(commands.Bot):
                 for image in _images[:30]:
                     _channel = guild.get_channel(image.channel_id)
                     if isinstance(_channel, TextChannel):
-                        # !WARNING! - Could this fail if a user deletes the message themselves?
-                        await _channel.get_partial_message(image.message_id).delete()
+                        try:
+                            await _channel.get_partial_message(image.message_id).delete()
+                        except discord.errors.Forbidden:
+                            self._logger.error(msg=f"Unable to delete the message {image.message_id} in {_channel} - Permission Forbidden | Guild ID: {guild.id}")
+                        except Exception as e:
+                            self._logger.error(msg=f"Unable to delete the message {image.message_id} in {_channel} | Guild ID: {guild.id} | Error : {e}")
                         await user.remove_image(image=image)
                     else:
                         await user.remove_image(image=image)
@@ -238,6 +246,7 @@ class MrFriendly(commands.Bot):
         self._logger.info(msg=f'{context.author.name} used {context.command}...')
 
     async def on_command_error(self, context: commands.Context, error: commands.CommandError) -> None:
+
         if context.command is not None:
             if isinstance(error, commands.TooManyArguments):
                 await context.send(content=f'You called the {context.command.name} command with too many arguments.')
@@ -274,8 +283,6 @@ class MrFriendly(commands.Bot):
                     await user.add_roles(_role)
 
     async def on_message(self, message: discord.Message) -> None | discord.Message:
-        # Build our cache..
-        self._cache[message.id] = message
         # ignore ourselves and any message where the author isn't a Member
         if (message.author == self.user) or (isinstance(message.author, discord.Member) == False):
             return
@@ -286,7 +293,13 @@ class MrFriendly(commands.Bot):
             if _user is not None:
                 await _user.update_last_active_at()
 
+            if len(message.attachments) != 0:
+
+                # Build our cache..of messages with Images.
+                self._cache[message.id] = message
+
             if len(message.attachments) != 0 and _user is not None:
+                # We update the DB with the Discord Message Attachment/Image information for when the user leaves to keep privacy.
                 await _user.add_image(channel_id=message.channel.id, message_id=message.id)
 
         # ignore moderator messages, but handle commands.
@@ -321,43 +334,51 @@ class MrFriendly(commands.Bot):
                         await message.channel.send(f"{message.author.mention}: Only Images and Videos are allowed in this channel", delete_after=10)
                         return
 
+    async def on_message_delete(self, message: discord.Message) -> None:
+        if message.guild is None:
+            return
+        _user: User | None = await User.add_or_get_user(guild_id=message.guild.id, user_id=message.author.id)
+        if _user is None:
+            return
+
+        _img: Image | None = await _user.get_image(channel_id=message.channel.id, message_id=message.id)
+        if _img is None:
+            return
+        await _user.remove_image(image=_img)
+
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
         if payload.message_id not in self._cache:
             return
-
         _cache_message: Message = self._cache[payload.message_id]
-        if payload.guild_id is not None:
-            # Remove our Role Embeds first.
-            _role_embeds: list[Role_Embed_Info] = await Role_Embed_Info.get_all_role_embeds(guild_id=payload.guild_id)
-            if len(_role_embeds) != 0:
-                _embed_info: Role_Embed_Info | None = next((embed for embed in _role_embeds if embed.message_id == _cache_message.id and embed.channel_id == _cache_message.channel.id), None)
-                if _embed_info is not None:
-                    await Role_Embed_Info.remove_role_embed(embed_info=_embed_info)
+        if payload.guild_id is None:
+            return
+        _user: User | None = await User.add_or_get_user(guild_id=payload.guild_id, user_id=_cache_message.author.id)
+        if _user is None:
+            return
+        _img: Image | None = await _user.get_image(channel_id=payload.channel_id, message_id=payload.message_id)
+        if _img is None:
+            return
+        await _user.remove_image(image=_img)
 
-            _user: User | None = await User.add_or_get_user(guild_id=payload.guild_id, user_id=_cache_message.author.id)
-            if _user is not None:
-                _img: Image | None = await _user.get_image(channel_id=_cache_message.channel.id, message_id=_cache_message.id)
-                if _img is None:
-                    return
-                await _user.remove_image(image=_img)
-
-    async def on_member_leave(self, member: discord.Member) -> None:
+    async def on_member_remove(self, member: discord.Member) -> None:
         if isinstance(member.guild, discord.Guild) is True:
             _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
             _channel = member.guild.get_channel(_settings.notification_channel_id)
             if isinstance(_channel, TextChannel):
-                await _channel.send(content=f"<t:{datetime.now().timestamp()}:R> | {self._emojis.Arrow_left} {member.mention} has left the server.")
+                await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.arrow_left} {member.mention} has left the server.")
         _user: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
         if _user is None:
             return
+        await _user.update_cleaned(cleaned=False)
         await _user.add_leave()
+        self._logger.info(msg=f"{member} has left the server. | Guild ID: {member.guild.id}")
 
     async def on_member_join(self, member: discord.Member) -> None:
         if isinstance(member.guild, discord.Guild) is True:
             _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
             _channel = member.guild.get_channel(_settings.notification_channel_id)
             if isinstance(_channel, TextChannel):
-                await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.Arrow_right} {member.mention} has joined the server.")
+                await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.arrow_right} {member.mention} has joined the server.")
 
         _user: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
         if _user is None:
@@ -365,39 +386,21 @@ class MrFriendly(commands.Bot):
         await _user.update_cleaned(cleaned=False)
 
     async def on_member_ban(self, guild: discord.Guild, user: discord.User) -> None:
+        _settings: Settings = await _get_guild_settings(guild_id=guild.id)
+        _channel = guild.get_channel(_settings.notification_channel_id)
+        if isinstance(_channel, TextChannel):
+            await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.no_entry} {user.mention} has been banned from the server.")
+
         _user: User | None = await User.add_or_get_user(guild_id=guild.id, user_id=user.id)
         if _user is None:
             return
+
         await _user.update_banned(banned=True)
-
-    async def on_member_update(self, before_member: discord.Member, after_member: discord.Member) -> None:
-        _settings: Settings = await Settings.add_or_get_settings(guild_id=after_member.guild.id)
-        # check the before member if they have the verified role id.
-        if _settings.verified_role_id in [role.id for role in before_member.roles]:
-            return
-        # check if the after member has the verified role id.
-        elif _settings.verified_role_id not in [role.id for role in after_member.roles]:
-            return
-        else:
-            _channel = after_member.guild.get_channel(_settings.welcome_channel_id)
-            if not isinstance(_channel, TextChannel):
-                return
-
-            _intros_channel = None
-            _roles_channel = None
-            if _settings.personal_intros_channel_id is not None:
-                _intros_channel = after_member.guild.get_channel(_settings.personal_intros_channel_id)
-            if _settings.roles_channel_id is not None:
-                _roles_channel = after_member.guild.get_channel(_settings.roles_channel_id)
-            await _channel.send(content=f"""Hello everyone, please welcome {after_member.mention} to our community.
-                                Please head on over to our Roles channel {"<not set>" if _roles_channel is None else _roles_channel.mention} and select a role.
-                                You can also head on over to our Intros channel {'<not set>' if _intros_channel is None else _intros_channel.mention} and introduce yourself!""")
-            return
 
     async def setup_attributes(self) -> None:
         _guild: discord.Guild | None = self.get_guild(self._guild_id)
         if _guild is None:
-            self._logger.error(msg=f"Failed to find the Discord Guild. | Guild ID: {self._guild_id}")
+            self._logger.error(msg=f"Failed to find the Discord Guild in setup_attributes. | Guild ID: {self._guild_id}")
             return
         for category in _guild.categories:
             if category.name.lower() == "nsfw pics-videos":
@@ -405,14 +408,17 @@ class MrFriendly(commands.Bot):
                 break
 
     async def build_cache(self) -> None:
+        """
+        Build a message cache of only messages with Attachments and Embeds.
+        """
         cache = {}
         await self.wait_until_ready()
         for guilds in self.guilds:
             for channel in guilds.text_channels:
                 try:
-                    cache: dict[int, Message] = {message.id: message async for message in channel.history(limit=100)}
+                    cache: dict[int, Message] = {message.id: message async for message in channel.history(limit=100) if message.attachments != 0 or message.embeds != 0}
                 except Exception as e:
-                    self._logger.error(msg=f"Failed to get messages from channel {channel.name} | {e}")
+                    self._logger.error(msg=f"Build Cache - Failed to get messages from channel {channel.name} | {e}")
                     continue
         self._cache: dict[int, Message] = cache
 
