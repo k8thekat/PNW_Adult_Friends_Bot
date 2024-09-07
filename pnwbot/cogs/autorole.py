@@ -68,7 +68,7 @@ class AutoRole(commands.Cog):
             try:
                 _guild_embeds: list[Role_Embed_Info] = await Role_Embed_Info.get_all_role_embeds(guild_id=guild.id)
             except ValueError:
-                self._logger.warn(msg=f"No Role Embeds in this Guild | Guild ID: {guild.id}")
+                # self._logger.warn(msg=f"No Role Embeds in this Guild | Guild ID: {guild.id}")
                 continue
 
             for embed in _guild_embeds:
@@ -125,27 +125,6 @@ class AutoRole(commands.Cog):
             if (current.lower() in _name.lower()) or (current.lower() in _value.lower()):
                 _choices.append(app_commands.Choice(name=_name, value=_value))
         return _choices
-
-    @commands.Cog.listener(name="on_message")
-    async def on_message(self, message: discord.Message):
-        if message.guild is None:
-            return
-        if len(message.embeds) != 0:
-            # Keep our Embed message cache.
-            self._bot._cache[message.id] = message
-
-    @commands.Cog.listener(name="on_raw_message_delete")
-    async def on_raw_message_delete_embed_tracker(self, payload: discord.RawMessageDeleteEvent) -> None:
-        if payload.message_id not in self._bot._cache:
-            return
-        _cache_message: Message = self._bot._cache[payload.message_id]
-        if payload.guild_id is not None:
-            # Remove our Role Embeds first.
-            _role_embeds: list[Role_Embed_Info] = await Role_Embed_Info.get_all_role_embeds(guild_id=payload.guild_id)
-            if len(_role_embeds) != 0:
-                _embed_info: Role_Embed_Info | None = next((embed for embed in _role_embeds if embed.message_id == _cache_message.id and embed.channel_id == _cache_message.channel.id), None)
-                if _embed_info is not None:
-                    await Role_Embed_Info.remove_role_embed(embed_info=_embed_info)
 
     @commands.Cog.listener(name='on_interaction')
     async def on_reaction_role(self, interaction: discord.Interaction) -> None:

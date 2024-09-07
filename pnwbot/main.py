@@ -16,15 +16,13 @@ import util.asqlite as asqlite
 from database import *
 from database.settings import Settings
 from database.user import Image, User
-from discord import CategoryChannel, Intents, Message, TextChannel
+from discord import CategoryChannel, Forbidden, Intents, Message, TextChannel
 from discord.ext import commands, tasks
+from loader import *
 from util.commandtree import MrFriendlyCommandTree
 from util.emoji_lib import Emojis
 
 TOKEN: str
-# <@&> role
-# <#> channel
-# <@!> user
 
 
 def load_ini() -> Any:
@@ -64,12 +62,19 @@ async def _get_prefix(bot: "MrFriendly", message: Message):
 
 
 # TODO - Handle Suggestions-Feedback channel - Remove someones suggestion after it is sent.
-# TODO - Verification Channels for New Users (Use Category + User ID for channel name)
-    # - ?verify command
 # TODO - Add an About/Stats command.
     # - See Kuma_Kuma
 
+# TODO - Add descriptions to commands and finish doc-strings.
+
 class MrFriendly(commands.Bot):
+    """
+    MrFriendly _summary_ \n
+
+    <@&> role \n
+    <#> channel \n
+    <@!> user
+    """
     _logger: Logger = logging.getLogger(name=__name__)
     _database: Base = Base()
     _inactive_time = timedelta(days=180)  # How long a person has to have not been active in the server.
@@ -95,7 +100,6 @@ class MrFriendly(commands.Bot):
 
     async def on_ready(self) -> None:
         self._logger.info(msg=f'Logged on as {self._bot_name}!')
-        await asyncio.create_task(coro=self.build_cache())
 
     async def setup_hook(self) -> None:
         await self._database._create_tables()
@@ -103,9 +107,8 @@ class MrFriendly(commands.Bot):
         self.delete_pictures.start()
         self.kick_unverified_users.start()
         # self.kick_inactive_users.start() #! Disabling Until the server is popular. 8/25/2024
-        await self.load_extension(name="cogs.infractions")
-        await self.load_extension(name="cogs.autorole")
-        await self.load_extension(name="cogs.settings")
+        self._handler = Handler(bot=self)
+        await self._handler.cog_auto_loader()
 
     @tasks.loop(minutes=5, reconnect=True)
     async def delete_pictures(self) -> None:
@@ -173,7 +176,7 @@ class MrFriendly(commands.Bot):
                 try:
                     await member.kick(reason="Failed to verify within 7 days")
                     self._logger.info(msg=f"Kicked {member} for not verifying in 7 days. | Guild ID: {self._guild_id}")
-                except discord.errors.Forbidden:
+                except Forbidden:
                     self._logger.error(msg=f"Unable to kick {member} due to Missing Permissions")
                 except Exception as e:
                     self._logger.error(msg=f"Unable to kick {member} due to {e}")
@@ -204,7 +207,7 @@ class MrFriendly(commands.Bot):
                 try:
                     await member.kick(reason="Inactive for over 6 months.")
                     self._logger.info(msg=f"Kicked {member} for being inactive for 6 months. | Guild ID: {self._guild_id}")
-                except discord.errors.Forbidden:
+                except Forbidden:
                     self._logger.error(msg=f"Unable to kick {member} due to Missing Permissions")
                 except Exception as e:
                     self._logger.error(msg=f"Unable to kick {member} due to {e}")
@@ -234,7 +237,7 @@ class MrFriendly(commands.Bot):
                     if isinstance(_channel, TextChannel):
                         try:
                             await _channel.get_partial_message(image.message_id).delete()
-                        except discord.errors.Forbidden:
+                        except Forbidden:
                             self._logger.error(msg=f"Unable to delete the message {image.message_id} in {_channel} - Permission Forbidden | Guild ID: {guild.id}")
                         except Exception as e:
                             self._logger.error(msg=f"Unable to delete the message {image.message_id} in {_channel} | Guild ID: {guild.id} | Error : {e}")
@@ -252,6 +255,15 @@ class MrFriendly(commands.Bot):
                 await context.send(content=f'You called the {context.command.name} command with too many arguments.')
             elif isinstance(error, commands.MissingRequiredArgument):
                 await context.send(content=f'You called {context.command.name} command without the required arguments')
+
+    async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
+        if member == self.user:
+            return
+        _user: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
+        if _user is None:
+            self._logger.error(msg=f"Failed to find the Database User when updating their last active time. | Guild ID: {member.guild.id} | User ID: {member.id}")
+            return
+        await _user.update_last_active_at()
 
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]) -> None:
         if user == self.user:
@@ -276,8 +288,6 @@ class MrFriendly(commands.Bot):
                 return
 
             if _user.verified is True:
-                if _settings.verified_role_id is None:
-                    return
                 _role: discord.Role | None = reaction.message.guild.get_role(_settings.verified_role_id)
                 if _role is not None and isinstance(user, discord.Member):
                     await user.add_roles(_role)
@@ -292,12 +302,7 @@ class MrFriendly(commands.Bot):
             _user: User | None = await User.add_or_get_user(guild_id=message.guild.id, user_id=message.author.id)
             if _user is not None:
                 await _user.update_last_active_at()
-
-            if len(message.attachments) != 0:
-
-                # Build our cache..of messages with Images.
-                self._cache[message.id] = message
-
+            
             if len(message.attachments) != 0 and _user is not None:
                 # We update the DB with the Discord Message Attachment/Image information for when the user leaves to keep privacy.
                 await _user.add_image(channel_id=message.channel.id, message_id=message.id)
@@ -346,19 +351,6 @@ class MrFriendly(commands.Bot):
             return
         await _user.remove_image(image=_img)
 
-    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
-        if payload.message_id not in self._cache:
-            return
-        _cache_message: Message = self._cache[payload.message_id]
-        if payload.guild_id is None:
-            return
-        _user: User | None = await User.add_or_get_user(guild_id=payload.guild_id, user_id=_cache_message.author.id)
-        if _user is None:
-            return
-        _img: Image | None = await _user.get_image(channel_id=payload.channel_id, message_id=payload.message_id)
-        if _img is None:
-            return
-        await _user.remove_image(image=_img)
 
     async def on_member_remove(self, member: discord.Member) -> None:
         if isinstance(member.guild, discord.Guild) is True:
@@ -407,21 +399,6 @@ class MrFriendly(commands.Bot):
                 self._NSFW_category = category
                 break
 
-    async def build_cache(self) -> None:
-        """
-        Build a message cache of only messages with Attachments and Embeds.
-        """
-        cache = {}
-        await self.wait_until_ready()
-        for guilds in self.guilds:
-            for channel in guilds.text_channels:
-                try:
-                    cache: dict[int, Message] = {message.id: message async for message in channel.history(limit=100) if message.attachments != 0 or message.embeds != 0}
-                except Exception as e:
-                    self._logger.error(msg=f"Build Cache - Failed to get messages from channel {channel.name} | {e}")
-                    continue
-        self._cache: dict[int, Message] = cache
-
 
 Friendly = MrFriendly()
 
@@ -459,23 +436,6 @@ async def clear_prefix(context: commands.Context) -> Message:
     _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
     await Friendly._database._execute(SQL="""DELETE FROM prefixes WHERE guild_id = ?""", parameters=(context.guild.id,))
     return await context.send(content=f"Removed all prefix's for {context.guild.name}", delete_after=_settings.msg_timeout)
-
-
-@Friendly.command(name="reload")
-@commands.is_owner()
-@commands.guild_only()
-async def reload_cogs(context: commands.Context) -> Message:
-    assert context.guild
-    _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
-    try:
-        await Friendly.reload_extension(name="cogs.infractions")
-        await Friendly.reload_extension(name="cogs.autorole")
-        await Friendly.reload_extension(name="cogs.settings")
-    except Exception as e:
-        Friendly._logger.error(f"Failed to unload cogs - {e}")
-        return await context.send(content=f"Failed to reload extensions..", ephemeral=True, delete_after=_settings.msg_timeout)
-    return await context.send(content=f"Reloaded all extensions...", ephemeral=True, delete_after=_settings.msg_timeout)
-
 
 @Friendly.hybrid_command(name="sync")
 @commands.is_owner()

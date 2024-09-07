@@ -1,12 +1,53 @@
 import logging
+import re
+import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
 from sqlite3 import Cursor, Row
-from typing import Any
+from typing import Any, Literal, Self
 
 import util.asqlite as asqlite
 
 __all__: tuple[str, ...] = ("Base",)
 
+
+
+@dataclass
+class VersionInfo():
+    major: int = 0
+    minor: int = 0
+    revision: int = 0
+    level: str = "release"
+    
+    @staticmethod
+    def _parse_version() -> "VersionInfo":
+        """
+        Get's the version information from the database `__init__.py`.
+
+        Returns:
+            VersionInfo: _description_
+        """
+        # Grab Version from __init__.py
+        version: str = ''
+        tmp = VersionInfo()
+        with open(file='pnwbot/database/__init__.py') as file:
+            version = re.search(pattern=r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', string=file.read(), flags=re.MULTILINE).group(1).split(".")  # type:ignore
+        tmp.major = int(version[0])
+        tmp.minor = int(version[1])
+        tmp.revision = int(version[2])
+        return tmp
+        
+    def __hash__(self) -> int:
+        return hash((self.major, self.minor, self.revision, self.level))
+
+    def __eq__(self, other: "VersionInfo") -> Any | Literal[False]:
+        try:
+            return (self.major == other.major) and (self.minor == other.minor) and (self.revision == other.revision) and (self.level == other.level)
+        except AttributeError:
+            return False
+        
+    def __str__(self) -> str:
+        return f"{self.major}.{self.minor}.{self.revision}-{self.level}"
 
 class Base:
     """
@@ -110,9 +151,46 @@ class Base:
         Creates the DATABASE tables from `SCHEMA_FILE_PATH`. \n
 
         """
-        self._logger.info(f"CREATE TABLE {self.SCHEMA_FILE_PATH}")
-        self._logger.info(f"{self.dir}")
+        self._logger.info(msg=f"Initializing our Database...")
+        
         with open(file=self.SCHEMA_FILE_PATH, mode="r") as f:
             async with asqlite.connect(database=self.DB_FILE_PATH) as db:
                 async with db.cursor() as cur:
                     await cur.executescript(sql_script=f.read())
+        await self._check_update()
+
+
+    async def _check_update(self) -> Any | None:
+        """
+        Handles our Database alterations and updates.
+        """
+        self._logger.info(msg=f"Checking Database for updates...")
+        #check if the version table exists.
+        res: Row | None = await self._fetchone(SQL=f"""SELECT * FROM version""")
+        version: VersionInfo = VersionInfo()._parse_version()
+        if res is None:
+            # First update to add version support.
+            await self._execute(SQL=f"""INSERT INTO version(major, minor, revision, level) VALUES(?,?,?,?) RETURNING *""", 
+                        parameters=(version.major, version.minor, version.revision, version.level))
+            return await self._check_update()
+        e_version = VersionInfo(**res)
+        self._logger.info(msg=f"Found Database version {e_version}...")
+        
+        if e_version != version:
+            if version == VersionInfo(major=0, minor= 0, revision=2, level="release"):
+                self._logger.info(msg=f"Updating our Database from {e_version} to {version}...")
+                try:
+                    await self._execute(SQL="""ALTER TABLE settings ADD COLUMN rules_channel_id INTEGER DEFAULT 0""")
+                except sqlite3.OperationalError as e:
+                    pass
+                await self._execute(SQL=f"""UPDATE version SET major = ?, minor = ?, revision = ?""", parameters=(version.major, version.minor, version.revision))
+                await self._check_update()
+        
+      
+        else:
+            self._logger.info(msg=f"No Updates found, our Database is currently on version {e_version}...")
+        
+
+                
+       
+                

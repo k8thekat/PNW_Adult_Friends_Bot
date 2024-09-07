@@ -1,8 +1,8 @@
-# Welcome {{member}} to the PNW Adult Friends server
+# Welcome {member} to the PNW Adult Friends server
 
-This is an adult only, **18+** server and as a result **requires** ID verification. Please read the {{rules_channel}} and thumbs up showing you agree to them.
+This is an adult only, **18+** server and as a result **requires** ID verification. Please read the {rules_channel} and thumbs up showing you agree to them.
 
-Once you agree to the rules, please follow the below instructions and wait for a {{moderator_role}} to approve.
+Once you agree to the rules, please follow the below instructions and wait for a {moderator_role} to approve.
 
 # Verification requires the following:
 - A government ID issued in Washington, Oregon, Idaho, or British Columbia.

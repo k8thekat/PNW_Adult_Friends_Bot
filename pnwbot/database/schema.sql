@@ -1,4 +1,12 @@
 CREATE TABLE
+    IF NOT EXISTS version (
+        major INTEGER NOT NULL DEFAULT 0,
+        minor INTEGER NOT NULL DEFAULT 0,
+        revision INTEGER NOT NULL DEFAULT 0,
+        level TEXT NOT NULL
+    ) STRICT;
+
+CREATE TABLE
     IF NOT EXISTS guilds (guild_id INTEGER UNIQUE NOT NULL) STRICT;
 
 CREATE TABLE
@@ -18,6 +26,7 @@ CREATE TABLE
         verified_role_id INTEGER DEFAULT 0,
         welcome_channel_id INTEGER DEFAULT 0,
         rules_message_id INTEGER DEFAULT 0,
+        rules_channel_id INTEGER DEFAULT 0,
         notification_channel_id INTEGER DEFAULT 0,
         flirting_channel_id INTEGER DEFAULT 0,
         personal_intros_channel_id INTEGER DEFAULT 0,

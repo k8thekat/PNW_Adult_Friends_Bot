@@ -77,6 +77,7 @@ class Settings(Base):
     verified_role_id: int = 0
     welcome_channel_id: int = 0
     rules_message_id: int = 0
+    rules_channel_id: int = 0
     notification_channel_id: int = 0
     flirting_channel_id: int = 0
     personal_intros_channel_id: int = 0

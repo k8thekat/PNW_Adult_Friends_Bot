@@ -76,10 +76,10 @@ class User(Base):
     guild_id: int
     user_id: int
     created_at: datetime
-    verified: bool
+    verified: bool # DEFAULT - FALSE
     last_active_at: datetime
-    banned: bool
-    cleaned: bool
+    banned: bool # DEFAULT - FALSE
+    cleaned: bool # Default - FALSE
     user_leaves: set[Leave] = field(default_factory=set)
     user_infractions: set[Infraction] = field(default_factory=set)
     user_images: set[Image] = field(default_factory=set)

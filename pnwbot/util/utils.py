@@ -9,6 +9,7 @@ from typing import Mapping, TypedDict
 
 import aiofiles
 from database.settings import Settings
+from discord import Member
 
 
 def reload_module_dependencies(module_path: str, /) -> set[str]:
@@ -79,21 +80,27 @@ async def count_others(path: str, filetype: str = ".py", file_contains: str = "d
 
 @dataclass()
 class MarkDownPlaceHolders():
-    """When accessing Database Settings always use `_settings` as the variable name.\n
-    - **member**: `discord.Guild.Member`
-    -
+    """ 
+    Built-in formatting of Markdown files to replace strings with usable data using Discord's channel, member and role linking.
     """
-    member: str = "member.mention"
-    moderator_role: str = "guild.get_role(_settings.mod_role_id)"
-    rules_channel: str = "guild.get_channel(_settings.rules_message_id)"
-    roles_channel: str = "guild.get_channel(_settings.roles_channel_id)"
-    intro_channel: str = "guild.get_channel(_settings.personal_intros_channel_id)"
+    member: str
+    moderator_role: str
+    rules_channel: str
+    roles_channel: str
+    intro_channel: str
+
+    def __init__(self, member: Member, settings: Settings) -> None:
+        self.member: str = member.mention
+        self.moderator_role: str = f"<@&{settings.mod_role_id}>"
+        self.rules_channel: str = f"<#{settings.rules_channel_id}>"
+        self.roles_channel: str = f"<#{settings.roles_channel_id}>"
+        self.intro_channel: str = f"<#{settings.personal_intros_channel_id}>"
 
     def to_dict(self) -> dict[str, str]:
         return {key: str(object=value) for key, value in asdict(obj=self).items()}
 
 
-async def parse_markdown(path: str, placeholder_struct: MarkDownPlaceHolders = MarkDownPlaceHolders(), replace_placeholders: bool = True) -> str:
+def parse_markdown(path: str, placeholder_struct: MarkDownPlaceHolders , replace_placeholders: bool = True) -> str:
     """
     Parse a markdown file to replace keywords from the .md file with attributes of `MarkDownPlaceHolders`.
 

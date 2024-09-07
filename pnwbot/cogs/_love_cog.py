@@ -15,15 +15,13 @@ from typing import Any, List, NamedTuple, Optional, Self, Union
 
 import discord
 import pytz
+import util.asqlite as asqlite
+import util.timezones
 from discord import Member, app_commands
 from discord.app_commands import Choice
 from discord.colour import Colour
 from discord.enums import ButtonStyle
 from discord.ext import commands, tasks
-
-import util.asqlite as asqlite
-import util.timezones
-
 from main import MrFriendly
 
 DB_FILENAME = "lovers.sqlite"
