@@ -126,7 +126,7 @@ class User(Base):
             else:
                 # We only want to build out the user data IF they already exist.
                 _temp = cls(**_exists)
-                cls._logger.info(msg=f"**DEBUG** - {_temp}")
+                # cls._logger.info(msg=f"**DEBUG** - {_temp}")
                 return await _temp.build_user_data()
                 
 

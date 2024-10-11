@@ -167,7 +167,7 @@ class MrFriendly(commands.Bot):
         # requirements is only 1 role which is the default @everyone with a join time 7 days or later in the past
         for member in _guild.members:
             #Skip bot accounts
-            self._logger.info(msg=f"**DEBUG** - is bot? {member.bot}")
+            # self._logger.info(msg=f"**DEBUG** - is bot? {member.bot}")
             if member.bot is True:
                 continue
             if member.joined_at is None:
@@ -443,7 +443,7 @@ class MrFriendly(commands.Bot):
             return
         await _user.update_cleaned(cleaned=False)
         res: Leave | None = await _user.add_leave()
-        self._logger.info(msg=f"**DEBUG** - {_user.user_leaves} {res}")
+        # self._logger.info(msg=f"**DEBUG** - {_user.user_leaves} {res}")
         self._logger.info(msg=f"{member} has left the server. | Member Leave Count: {len(_user.user_leaves)} Guild ID: {member.guild.id}")
 
     async def on_member_join(self, member: discord.Member) -> None:

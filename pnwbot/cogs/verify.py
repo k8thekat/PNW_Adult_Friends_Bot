@@ -115,8 +115,8 @@ class Verify(commands.Cog):
             # lets attempt to get the welcome channel and welcome the user back.
             _welcome_channel = member.guild.get_channel(_settings.welcome_channel_id)
             if _welcome_channel is not None and isinstance(_welcome_channel, TextChannel):
-                self._logger.info("**DEBUG** - Sending welcome message")
-                # await _welcome_channel.send(content=parse_markdown(path="../welcome.md", placeholder_struct=MarkDownPlaceHolders(member= member, settings=_settings)))
+                # self._logger.info("**DEBUG** - Sending welcome message")
+                await _welcome_channel.send(content=parse_markdown(path="../welcome.md", placeholder_struct=MarkDownPlaceHolders(member= member, settings=_settings)))
         
         # self._logger.info(f"**DEBUG** - {_verified} | {_verified_role.id if _verified_role is not None else None} | {_dbuser}")
         # We don't want to make the channel/etc since they are already verified.
