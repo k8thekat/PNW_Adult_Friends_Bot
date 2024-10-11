@@ -6,6 +6,7 @@ from sqlite3 import Row
 from typing import Any, Optional, Self, Union
 
 import util.asqlite as asqlite
+from discord import CategoryChannel, TextChannel
 
 from .base import Base
 
@@ -89,6 +90,16 @@ class Settings(Base):
 
     def __post_init__(self, _pool: asqlite.Pool | None = None) -> None:
         self._fields: list[str] = [field.name for field in fields(class_or_instance=self)]
+
+    def __eq__(self, other: "Settings") -> bool:
+        try:
+            return self.guild_id == other.guild_id
+        except AttributeError:
+            return False
+    
+    def __hash__(self) -> int:
+        return hash(self.guild_id)
+
 
     @staticmethod
     def exists(func):

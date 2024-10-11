@@ -49,6 +49,8 @@ class VersionInfo():
     def __str__(self) -> str:
         return f"{self.major}.{self.minor}.{self.revision}-{self.level}"
 
+
+
 class Base:
     """
     MrFriendly's DATABASE

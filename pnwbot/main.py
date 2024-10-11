@@ -35,8 +35,10 @@ def load_ini() -> Any:
     else:
         raise ValueError("Failed to find `DISCORD` section in token.ini file.")
 
-
 async def _get_guild_settings(guild_id: int) -> Settings:
+    """
+    Get's the Database Guild Settings.
+    """
     _logger = logging.getLogger()
     async with asqlite.connect(database=Base.DB_FILE_PATH) as conn:
         res: Row | None = await conn.fetchone("""SELECT * FROM settings WHERE guild_id = ?""", (guild_id,))
@@ -45,7 +47,10 @@ async def _get_guild_settings(guild_id: int) -> Settings:
         return Settings(**res) if res is not None else Settings(guild_id=guild_id)
 
 
-async def _get_prefix(bot: "MrFriendly", message: Message):
+async def _get_prefix(bot: "MrFriendly", message: Message) -> list[str]:
+    """
+    Get's the Database Guild Prefixes
+    """
     prefixes = [bot._prefix]
     if message.guild is not None:
         _guild: int = message.guild.id
@@ -64,8 +69,6 @@ async def _get_prefix(bot: "MrFriendly", message: Message):
 # TODO - Handle Suggestions-Feedback channel - Remove someones suggestion after it is sent.
 # TODO - Add an About/Stats command.
     # - See Kuma_Kuma
-
-# TODO - Add descriptions to commands and finish doc-strings.
 
 class MrFriendly(commands.Bot):
     """
@@ -89,7 +92,7 @@ class MrFriendly(commands.Bot):
         self._prefix = "$"
         self.owner_id = None
         # Perms Int - 19096431750358
-        self._NSFW_category: CategoryChannel | None = None  # NSFW Pics Discord Category ID
+        self.nsfw_category: CategoryChannel | None = None  # NSFW Pics Discord Category ID
         self._guild_id: int = 1259645744420360243  # PNW Adult Friends
         self._to_clean_channels: set[TextChannel] = set()
 
@@ -103,11 +106,11 @@ class MrFriendly(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self._database._create_tables()
-        await self.setup_attributes()
         self.delete_pictures.start()
         self.kick_unverified_users.start()
         # self.kick_inactive_users.start() #! Disabling Until the server is popular. 8/25/2024
         self._handler = Handler(bot=self)
+        self._client_task: asyncio.Task = asyncio.create_task(coro=self.setup_attributes())
         await self._handler.cog_auto_loader()
 
     @tasks.loop(minutes=5, reconnect=True)
@@ -115,18 +118,13 @@ class MrFriendly(commands.Bot):
         """
         Delete's pictures from channels that are over 14 days old.
         """
-        _guild: discord.Guild | None = self.get_guild(self._guild_id)
-        if _guild is None:
-            self._logger.error(msg=f"Failed to find the Discord Guild in delete_pictures. | Guild ID: {self._guild_id}")
-            return
-
-        if self._NSFW_category is None:
+        if self.nsfw_category is None:
             await self.setup_attributes()
 
         # check if we have any channels to clean
         # We are using a set, so no need to check for duplicates.
-        if len(self._to_clean_channels) == 0 and isinstance(self._NSFW_category, CategoryChannel):
-            for channel in self._NSFW_category.channels:
+        if len(self._to_clean_channels) == 0 and isinstance(self.nsfw_category, CategoryChannel):
+            for channel in self.nsfw_category.channels:
                 if isinstance(channel, TextChannel):
                     self._to_clean_channels.add(channel)
 
@@ -168,7 +166,12 @@ class MrFriendly(commands.Bot):
         # kick users that haven't verified in 7 days
         # requirements is only 1 role which is the default @everyone with a join time 7 days or later in the past
         for member in _guild.members:
+            #Skip bot accounts
+            self._logger.info(msg=f"**DEBUG** - is bot? {member.bot}")
+            if member.bot is True:
+                continue
             if member.joined_at is None:
+                self._logger.warning(msg=f"User does not have a `joined_at` property. | Discord ID: {member.id} Guild ID: {_guild.id}")
                 continue
             join_time_len: int = (discord.utils.utcnow() - member.joined_at).days
             res: discord.Role | None = member.get_role(_settings.verified_role_id)
@@ -199,6 +202,8 @@ class MrFriendly(commands.Bot):
                 self._logger.error(msg=f"{self.user.name} does not have permission to kick members in the Discord Guild. | Guild ID: {self._guild_id}")
 
         for member in _guild.members:
+            if member.bot is True:
+                continue
             _user: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
             _active_by: datetime = (datetime.now() - self._inactive_time)
             if _user is None:
@@ -216,6 +221,9 @@ class MrFriendly(commands.Bot):
 
     @tasks.loop(minutes=15)
     async def user_cleanup(self) -> None:
+        """
+        Removes a Discord Member messages that contain images.
+        """
         for guild in self.guilds:
             if self.user is not None:
                 _user: discord.Member | None = guild.get_member(self.user.id)
@@ -232,6 +240,7 @@ class MrFriendly(commands.Bot):
                 _images: list[Image] = list(await user.get_all_images())
                 if len(_images) == 0:
                     await user.update_cleaned(cleaned=True)
+                    continue
                 for image in _images[:30]:
                     _channel = guild.get_channel(image.channel_id)
                     if isinstance(_channel, TextChannel):
@@ -246,17 +255,51 @@ class MrFriendly(commands.Bot):
                         await user.remove_image(image=image)
 
     async def on_command(self, context: commands.Context) -> None:
+        """
+        An event that is called when a command is found and is about to be invoked.
+
+        This event is called regardless of whether the command itself succeeds via error or completes.
+        """
+        if context.guild is not None:
+            return self._logger.info(msg=f'{context.author.name} used {context.command}...| {context.guild.id}')
+        
         self._logger.info(msg=f'{context.author.name} used {context.command}...')
 
     async def on_command_error(self, context: commands.Context, error: commands.CommandError) -> None:
+        """
+        An error handler that is called when an error is raised inside a command either through user input error, check failure, or an error in your own code.
 
+        This handles Prefix and Hybrid commands.
+        """
         if context.command is not None:
             if isinstance(error, commands.TooManyArguments):
                 await context.send(content=f'You called the {context.command.name} command with too many arguments.')
             elif isinstance(error, commands.MissingRequiredArgument):
                 await context.send(content=f'You called {context.command.name} command without the required arguments')
+        else:
+            self._logger.error(msg=f"Command Error - {error}")
+            self._logger.error(msg=f"{traceback.format_exc()}")
+
+    async def on_error(self, event: str, *args, **kwargs) -> None:
+        """
+        Usually when an event raises an uncaught exception, a traceback is logged to stderr and the exception is ignored. If you want to change this behavior and handle the exception for whatever reason yourself, this event can be overridden. \n 
+        
+        Which, when done, will suppress the default action of printing the traceback. The information of the exception raised and the exception itself can be retrieved with a standard call to `sys.exc_info()`.
+        """
+        self._logger.error(msg=f"Error event - {event} | {args} | {kwargs}")
+        self._logger.error(msg=traceback.print_exc())
 
     async def on_voice_state_update(self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState) -> None:
+        """
+        Called when a Member changes their VoiceState.
+
+        The following, but not limited to, examples illustrate when this event is called:
+            - A member joins a voice or stage channel.
+            - A member leaves a voice or stage channel.
+            - A member is muted or deafened by their own accord.
+            - A member is muted or deafened by a guild administrator.
+
+        """
         if member == self.user:
             return
         _user: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
@@ -266,6 +309,10 @@ class MrFriendly(commands.Bot):
         await _user.update_last_active_at()
 
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]) -> None:
+        """
+        Called when a message has a reaction added to it. Similar to `on_message_edit()`, if the message is not found in the internal message cache, then this event will not be called. \n 
+        Consider using `on_raw_reaction_add()` instead.
+        """
         if user == self.user:
             return
         if reaction.message.guild is not None:
@@ -293,6 +340,26 @@ class MrFriendly(commands.Bot):
                     await user.add_roles(_role)
 
     async def on_message(self, message: discord.Message) -> None | discord.Message:
+        """
+        Called when a Message receives an update event. If the message is not found in the internal message cache, then these events will not be called. Messages might not be in cache if the message is too old or the client is participating in high traffic guilds.
+
+        If this occurs increase the max_messages parameter or use the `on_raw_message_edit()` event instead.
+
+        The following non-exhaustive cases trigger this event:
+
+            - A message has been pinned or unpinned.
+
+            - The message content has been changed.
+
+            - The message has received an embed.
+
+                - For performance reasons, the embed server does not do this in a “consistent” manner.
+
+            - The message’s embeds were suppressed or unsuppressed.
+
+            - A call message has received an update to its participants or ending time.
+
+        """
         # ignore ourselves and any message where the author isn't a Member
         if (message.author == self.user) or (isinstance(message.author, discord.Member) == False):
             return
@@ -307,39 +374,46 @@ class MrFriendly(commands.Bot):
                 # We update the DB with the Discord Message Attachment/Image information for when the user leaves to keep privacy.
                 await _user.add_image(channel_id=message.channel.id, message_id=message.id)
 
-        # ignore moderator messages, but handle commands.
-        if isinstance(message.author, discord.Member) and message.content.startswith("!test") is False:
-            if message.author.guild_permissions.administrator is True or await self.is_owner(message.author):
-                return await super().on_message(message)
-            if _settings is not None and _settings.mod_role_id is not None and message.author.get_role(_settings.mod_role_id) is not None:
-                return await super().on_message(message)
+            # ignore moderator messages, but handle commands.
+            if isinstance(message.author, discord.Member) and message.content.startswith("!test") is False:
+                if message.author.guild_permissions.administrator is True or await self.is_owner(message.author):
+                    return await super().on_message(message)
+                if _settings is not None and _settings.mod_role_id is not None and message.author.get_role(_settings.mod_role_id) is not None:
+                    return await super().on_message(message)
 
-        if self._NSFW_category is None:
-            await self.setup_attributes()
+            if self.nsfw_category is None:
+                await self.setup_attributes()
 
-        # check for posts without an attachment in specific channels
-        # if found then delete it and alert the person
-        if isinstance(self._NSFW_category, CategoryChannel) and message.channel in self._NSFW_category.channels:
-            if len(message.attachments) == 0:
-                # no attachment, alert the user about where to post
-                await message.delete(delay=3)
-                _response: str = f"{message.author.mention} | Text messages are not allowed in this channel."
-                if _settings.flirting_channel_id is not None and message.guild is not None:
-                    _channel = message.guild.get_channel(_settings.flirting_channel_id)
-                if isinstance(message.channel, TextChannel) and _channel is not None:
-                    await message.channel.send(content=f"{message.author.mention} Text messages are not allowed in this channel. Please post them in {_channel.mention}", delete_after=10)
+            # check for posts without an attachment in specific channels
+            # if found then delete it and alert the person
+            if isinstance(self.nsfw_category, CategoryChannel) and message.channel in self.nsfw_category.channels:
+                if len(message.attachments) == 0:
+                    # no attachment, alert the user about where to post
+                    await message.delete(delay=3)
+                    _response: str = f"{message.author.mention} | Text messages are not allowed in this channel."
+                    if _settings.flirting_channel_id is not None and message.guild is not None:
+                        _channel = message.guild.get_channel(_settings.flirting_channel_id)
+                    if isinstance(message.channel, TextChannel) and _channel is not None:
+                        await message.channel.send(content=f"{message.author.mention} Text messages are not allowed in this channel. Please post them in {_channel.mention}", delete_after=10)
+                    else:
+                        await message.channel.send(content=_response, delete_after=10)
+
                 else:
-                    await message.channel.send(content=_response, delete_after=10)
-
-            else:
-                # if there is an attachment then verify it is an image or video
-                for entry in message.attachments:
-                    if entry.content_type is not None and entry.content_type.split("/")[0] not in ["image", "video"]:
-                        await message.delete(delay=1)
-                        await message.channel.send(f"{message.author.mention}: Only Images and Videos are allowed in this channel", delete_after=10)
-                        return
+                    # if there is an attachment then verify it is an image or video
+                    for entry in message.attachments:
+                        if entry.content_type is not None and entry.content_type.split("/")[0] not in ["image", "video"]:
+                            await message.delete(delay=1)
+                            await message.channel.send(f"{message.author.mention}: Only Images and Videos are allowed in this channel", delete_after=10)
+                            return
 
     async def on_message_delete(self, message: discord.Message) -> None:
+        """
+        Called when a message is deleted. If the message is not found in the internal message cache, then this event will not be called. Messages might not be in cache if the message is too old or the client is participating in high traffic guilds.
+
+        If this occurs increase the max_messages parameter or use the `on_raw_message_delete()` event instead.
+
+        This requires `Intents.messages` to be enabled.
+        """
         if message.guild is None:
             return
         _user: User | None = await User.add_or_get_user(guild_id=message.guild.id, user_id=message.author.id)
@@ -351,22 +425,35 @@ class MrFriendly(commands.Bot):
             return
         await _user.remove_image(image=_img)
 
-
     async def on_member_remove(self, member: discord.Member) -> None:
+        """
+        Called when a Member leaves a Guild.
+
+        If the guild or member could not be found in the internal cache this event will not be called, you may use `on_raw_member_remove()` instead.
+
+        This requires `Intents.members` to be enabled.
+        """
         if isinstance(member.guild, discord.Guild) is True:
             _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
             _channel = member.guild.get_channel(_settings.notification_channel_id)
             if isinstance(_channel, TextChannel):
-                await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.arrow_left} {member.mention} has left the server.")
+                await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.arrow_left} {member.mention}|{member.display_name} has left the server.")
         _user: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
         if _user is None:
             return
         await _user.update_cleaned(cleaned=False)
-        await _user.add_leave()
-        self._logger.info(msg=f"{member} has left the server. | Guild ID: {member.guild.id}")
+        res: Leave | None = await _user.add_leave()
+        self._logger.info(msg=f"**DEBUG** - {_user.user_leaves} {res}")
+        self._logger.info(msg=f"{member} has left the server. | Member Leave Count: {len(_user.user_leaves)} Guild ID: {member.guild.id}")
 
     async def on_member_join(self, member: discord.Member) -> None:
+        """
+        Called when a Member joins a Guild.
+
+        This requires `Intents.members` to be enabled.
+        """
         if isinstance(member.guild, discord.Guild) is True:
+            self._logger.info(msg=f"{member.name} has joined {member.guild.name}.")
             _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
             _channel = member.guild.get_channel(_settings.notification_channel_id)
             if isinstance(_channel, TextChannel):
@@ -378,6 +465,16 @@ class MrFriendly(commands.Bot):
         await _user.update_cleaned(cleaned=False)
 
     async def on_member_ban(self, guild: discord.Guild, user: discord.User) -> None:
+        """
+        Called when a user gets banned from a Guild.
+
+        This requires Intents.moderation to be enabled.\n
+        **Args**:
+            - guild (Guild) : The guild the user got banned from.
+            - user (Union[User, Member]) : The user that got banned. Can be either User or Member depending if the user was in the guild or not at the time of removal.
+ 
+        """
+
         _settings: Settings = await _get_guild_settings(guild_id=guild.id)
         _channel = guild.get_channel(_settings.notification_channel_id)
         if isinstance(_channel, TextChannel):
@@ -388,16 +485,23 @@ class MrFriendly(commands.Bot):
             return
 
         await _user.update_banned(banned=True)
-
+   
     async def setup_attributes(self) -> None:
-        _guild: discord.Guild | None = self.get_guild(self._guild_id)
-        if _guild is None:
-            self._logger.error(msg=f"Failed to find the Discord Guild in setup_attributes. | Guild ID: {self._guild_id}")
+        """
+        Retrieves the Guild Settings from the Database and set's the `self.nsfw_category` property for us to use.
+        """
+        await self.wait_until_ready()
+
+        guild: discord.Guild | None = self.get_guild(self._guild_id)
+        if guild is None:
+            self._logger.warning(msg=f"We failed to find the guild. | Guild ID: {self._guild_id}")
             return
-        for category in _guild.categories:
+        
+        for category in guild.categories:
             if category.name.lower() == "nsfw pics-videos":
-                self._NSFW_category = category
+                self.nsfw_category = category
                 break
+
 
 
 Friendly = MrFriendly()
@@ -412,6 +516,9 @@ async def prefix(context: commands.Context) -> None:
 @commands.is_owner()
 @commands.guild_only()
 async def add_prefix(context: commands.Context, prefix: str) -> Message:
+    """
+    Add a prefix to the guild.
+    """
     assert context.guild
     _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
     await Friendly._database._execute(SQL="""INSERT INTO prefixes(guild_id, prefix) VALUES(?, ?)""", parameters=(context.guild.id, prefix.lstrip()))
@@ -422,6 +529,9 @@ async def add_prefix(context: commands.Context, prefix: str) -> Message:
 @commands.is_owner()
 @commands.guild_only()
 async def delete_prefix(context: commands.Context, prefix: str) -> Message:
+    """
+    Delete a prefix from the guild.
+    """
     assert context.guild
     _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
     await Friendly._database._execute(SQL="""DELETE FROM prefixes WHERE guild_id = ? and prefix = ?""", parameters=(context.guild.id, prefix.lstrip()))
@@ -432,6 +542,9 @@ async def delete_prefix(context: commands.Context, prefix: str) -> Message:
 @commands.is_owner()
 @commands.guild_only()
 async def clear_prefix(context: commands.Context) -> Message:
+    """
+    Removes all prefixes for the guild.
+    """
     assert context.guild
     _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
     await Friendly._database._execute(SQL="""DELETE FROM prefixes WHERE guild_id = ?""", parameters=(context.guild.id,))
@@ -441,7 +554,9 @@ async def clear_prefix(context: commands.Context) -> Message:
 @commands.is_owner()
 @commands.guild_only()
 async def sync(context: commands.Context, local: bool = True, reset: bool = False):
-    """Syncs Bot Commands to the current guild this command was used in."""
+    """
+    Syncs Bot Commands to the current guild this command was used in.
+    """
     await context.typing(ephemeral=True)
     assert Friendly.user
     assert context.guild

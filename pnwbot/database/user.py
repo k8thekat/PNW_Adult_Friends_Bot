@@ -16,16 +16,17 @@ __all__: tuple[str, ...] = ("User", "Leave", "Infraction", "Image",)
 @dataclass
 class Image:
     id: int
+    user_id: int
     guild_id: int
     channel_id: int
     message_id: int
 
     def __hash__(self) -> int:
-        return hash((self.guild_id, self.channel_id, self.message_id))
+        return hash((self.guild_id, self.user_id, self.channel_id, self.message_id))
 
     def __eq__(self, other) -> Any | Literal[False]:
         try:
-            return (self.guild_id == other.guild_id) and (self.channel_id == other.channel_id) and (self.message_id == other.message_id)
+            return (self.guild_id == other.guild_id) and (self.user_id == other.user_id) and (self.channel_id == other.channel_id) and (self.message_id == other.message_id)
         except AttributeError:
             return False
 
@@ -92,6 +93,15 @@ class User(Base):
         self.verified = bool(self.verified)
         self.banned = bool(self.banned)
         self.cleaned = bool(self.cleaned)
+    
+    def __str__(self) -> str:
+        _reply = ""
+        for field in fields(class_or_instance=self):
+            if field.name == "_pool":
+                continue
+            _reply += f"{field.name}: {getattr(self, field.name)} "
+        return _reply
+        
 
     @staticmethod
     def exists(func):
@@ -114,7 +124,11 @@ class User(Base):
                     (guild_id, user_id, _time, _time))
                 return cls(**res) if res is not None else None
             else:
-                return cls(**_exists)
+                # We only want to build out the user data IF they already exist.
+                _temp = cls(**_exists)
+                cls._logger.info(msg=f"**DEBUG** - {_temp}")
+                return await _temp.build_user_data()
+                
 
     @classmethod
     async def get_banned_users(cls, guild_id: int) -> list[Self]:
@@ -131,6 +145,16 @@ class User(Base):
         async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
             res: list[Row] = await conn.fetchall(f"""SELECT * FROM users WHERE guild_id = ? AND cleaned = 0""", (guild_id,))
             return [cls(**row) for row in res]
+
+    async def build_user_data(self) -> Self:
+        """
+        Retrieves all of the Database Users information.
+        """
+        await self.get_leaves()
+        await self.get_infractions()
+        await self.get_all_images()
+        return self
+
 
     @exists
     async def update_banned(self, banned: bool) -> bool:
@@ -153,6 +177,7 @@ class User(Base):
     @exists
     async def add_leave(self) -> Leave | None:
         res: Row | None = await self._fetchone(SQL=f"""INSERT INTO user_leaves(user_id, created_at) VALUES(?, ?) RETURNING *""", parameters=(self.user_id, datetime.now().timestamp()))
+        
         if res is None:
             return res
         self.user_leaves.add(Leave(**res))

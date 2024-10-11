@@ -116,7 +116,8 @@ class Util(commands.Cog):
         try:
             await self._bot._handler.cog_auto_loader(reload=True)
         except Exception as e:
-            await context.send(content=f"We encountered an **Error** - \n`{e}` {traceback.format_exc()}", ephemeral=True, delete_after=_settings.msg_timeout)
+            self._logger.error(msg=traceback.format_exc())
+            await context.send(content=f"We encountered an **Error** - \n`{e}` {traceback.format_exc()}", ephemeral=True)
 
         await context.send(content=f'**SUCCESS** Reloading All Cogs ', ephemeral=True, delete_after=_settings.msg_timeout)
 
@@ -124,40 +125,37 @@ class Util(commands.Cog):
     @commands.guild_only()
     async def about(self, context: commands.Context):
         """Tells you information about the bot itself."""
+        import gc
+
+        import objgraph
+        from guppy import hpy
         await context.defer()
         assert self._bot.user
         assert context.guild
+        app_mem = hpy().heap()
         _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
         information = await self._bot.application_info()
         embed = discord.Embed()
-        # embed.add_field(name="Latest updates:", value=get_latest_commits(limit=5), inline=False)
-
-        embed.set_author(
-            name=f"Made by {information.owner.mention}", icon_url=information.owner.display_avatar.url,)
+        
+        embed.set_author(name=f"Made by {information.owner.name}", icon_url=information.owner.display_avatar.url)
         memory_usage = psutil.Process().memory_full_info().uss / 1024**2
         cpu_usage: float = psutil.cpu_percent()
 
-        embed.add_field(
-            name="Process", value=f"{memory_usage:.2f} MiB\n{cpu_usage:.2f}% CPU")
-        embed.add_field(
-            name=f"{self._bot.user.name} info:",
-            value=f"**Uptime:**\n{self._uptime}")
+        embed.add_field(name=f"{self._bot.user.name} info:", value=f"**Uptime:**\n{self._uptime}")
+        embed.add_field(name="Process", value=f"{memory_usage:.2f} MiB\n{cpu_usage:.2f}% CPU")
         try:
-            embed.add_field(
-                name="Lines",
-                value=f"Lines: {await count_lines('./', '.py'):,}"
+            embed.add_field(name="Lines", value=f"Lines: {await count_lines('./', '.py'):,}"
                 f"\nFunctions: {await count_others('./', '.py', 'def '):,}"
                 f"\nClasses: {await count_others('./', '.py', 'class '):,}",
             )
         except (FileNotFoundError, UnicodeDecodeError):
             pass
+        embed.add_field(name="Heap", value= f"{app_mem}")
+        # embed.add_field(name="Object Count", value=f"{objgraph.show_most_common_types(objects=[self._bot])}")
 
-        embed.set_footer(
-            text=f"Made with discord.py v{discord.__version__}",
-            icon_url="https://i.imgur.com/5BFecvA.png",
-        )
+        embed.set_footer(text=f"Made with discord.py v{discord.__version__}", icon_url="https://i.imgur.com/5BFecvA.png")
         embed.timestamp = discord.utils.utcnow()
-        await context.send(embed=embed, ephemeral=True, delete_after=_settings.msg_timeout)
+        await context.send(embed=embed, ephemeral=True, delete_after=_settings.msg_timeout*2)
 
     @commands.hybrid_command(name='clear')
     @app_commands.default_permissions(manage_messages=True)

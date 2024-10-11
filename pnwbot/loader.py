@@ -43,7 +43,6 @@ class Handler():
 
                 cog: str = f'{path}.{script.name[:-3]}'
                 try:
-                    print(reload, len(self._loaded_cogs), self._loaded_cogs)
                     if reload and cog in self._loaded_cogs:
                         self._logger.info(msg="Attempting to reload all cogs.")
                         await self._bot.reload_extension(name=cog)

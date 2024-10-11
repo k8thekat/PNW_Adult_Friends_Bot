@@ -29,7 +29,7 @@ class GuildSettings(commands.Cog):
     _logger: logging.Logger = logging.getLogger()
 
     def __init__(self, bot: "MrFriendly") -> None:
-        self._bot = bot
+        self._bot: "MrFriendly" = bot
         self._logger.info(msg=f"{self.__class__.__name__} Cog has been loaded!")
 
     async def autocomplete_properties(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -52,7 +52,7 @@ class GuildSettings(commands.Cog):
         else:
             return [app_commands.Choice(name=str(count), value=str(count))for count in range(0, 100, 5) if current.lower() in str(count).lower()][:25]
 
-    @app_commands.command(name="guild_setting")
+    @app_commands.command(name="guild_setting", description="Set a Guild Setting property.")
     @commands.guild_only()
     @commands.has_any_role("Moderator")
     @app_commands.autocomplete(property=autocomplete_properties)
@@ -76,7 +76,7 @@ class GuildSettings(commands.Cog):
             _content = f"Settings updated, set `{property}` to `{_value}`"
         return await interaction.response.send_message(content=_content, ephemeral=True, delete_after=_settings.msg_timeout)
 
-    @app_commands.command(name="show_settings")
+    @app_commands.command(name="show_settings", description="Show the current Guilds Settings.")
     @commands.guild_only()
     @commands.has_any_role("Moderator")
     async def show_settings(self, interaction: Interaction) -> None:
