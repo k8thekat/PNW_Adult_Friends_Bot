@@ -91,11 +91,11 @@ class Util(commands.Cog):
     def _uptime(self) -> timedelta:
         return timedelta(seconds=(round(number=time.time() - self._start_time)))
     
-    @commands.Cog.listener('on_message')
-    async def on_message_listener(self, message: discord.Message) -> None:
-        # This is for our `REPL` sessions.
-        if message.channel.id in self._sessions:
-            return
+    # @commands.Cog.listener('on_message')
+    # async def on_message_listener(self, message: discord.Message) -> None:
+    #     # This is for our `REPL` sessions.
+    #     if message.channel.id in self._sessions:
+    #         return
 
     def _self_check(self, message: discord.Message) -> bool:
         return message.author == self.bot.user

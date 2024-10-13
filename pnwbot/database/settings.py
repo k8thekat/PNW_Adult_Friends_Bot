@@ -8,7 +8,7 @@ from typing import Any, Optional, Self, Union
 import util.asqlite as asqlite
 from discord import CategoryChannel, TextChannel
 
-from .base import Base
+from .base import *
 
 __all__: tuple[str, ...] = ("Settings", "Role_Embed_Info",)
 
@@ -34,7 +34,7 @@ class Role_Embed_Info(Base):
             raise ValueError("Your `guild_id` value is to short (<15)")
         if len(str(message_id)) < 15:
             raise ValueError("Your `message_id` value is to short (<15)")
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             res: Row | None = await conn.fetchone("""INSERT INTO role_embeds(name, guild_id, channel_id, message_id) VALUES(?, ?, ?, ?)
                                                 ON CONFLICT(guild_id, channel_id, message_id) DO NOTHING RETURNING *""",
                                                   (name, guild_id, channel_id, message_id))
@@ -48,7 +48,7 @@ class Role_Embed_Info(Base):
             raise ValueError("Either `embed_info` or `id` must be provided.")
         if embed_info is not None:
             id = embed_info.id
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             res: Row | None = await conn.fetchone("""DELETE FROM role_embeds WHERE id = ?""", (id,))
         return True if res is not None else False
 
@@ -56,7 +56,7 @@ class Role_Embed_Info(Base):
     async def get_all_role_embeds(cls, guild_id: int) -> list[Role_Embed_Info]:
         if len(str(guild_id)) < 15:
             raise ValueError("Your `guild_id` value is to short (<15)")
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             res: list[Row] = await conn.fetchall("""SELECT * FROM role_embeds WHERE guild_id = ?""", (guild_id,))
         if len(res) == 0:
             raise ValueError(f"There is no entries in the `role_embeds` table for the Guild ID provided. | Guild ID: {guild_id}")
@@ -64,7 +64,7 @@ class Role_Embed_Info(Base):
 
     @classmethod
     async def get_role_embed(cls, guild_id: int, id: int) -> Role_Embed_Info:
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             res: Row | None = await conn.fetchone("""SELECT * FROM role_embeds WHERE guild_id = ? AND id = ?""", (guild_id, id))
         if res is None:
             raise ValueError(f"There is no entry in the `role_embeds` table for the Guild ID and ID provided. Guild ID: {guild_id} |ID: {id}")
@@ -86,9 +86,9 @@ class Settings(Base):
     infraction_log_channel_id: int = 0
     msg_timeout: int = 60
 
-    _pool: InitVar[asqlite.Pool | None] = None
+    _pool: InitVar[DB_Pool| None] = None
 
-    def __post_init__(self, _pool: asqlite.Pool | None = None) -> None:
+    def __post_init__(self, _pool: DB_Pool| None = None) -> None:
         self._fields: list[str] = [field.name for field in fields(class_or_instance=self)]
 
     def __eq__(self, other: "Settings") -> bool:
@@ -115,7 +115,7 @@ class Settings(Base):
     async def add_or_get_settings(cls, guild_id: int) -> Self:
         if len(str(object=guild_id)) < 15:
             raise ValueError("Your `guild_id` value is to short. (<15)")
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             # Check if the guild id is in the database.
             _exists: Row | None = await conn.fetchone(f"""SELECT * FROM guilds WHERE guild_id = ?""", (guild_id,))
           

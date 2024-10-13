@@ -8,7 +8,7 @@ from typing import Any, Literal, Self, Union
 
 import util.asqlite as asqlite
 
-from .base import Base
+from .base import Base, DB_Pool
 
 __all__: tuple[str, ...] = ("User", "Leave", "Infraction", "Image",)
 
@@ -57,9 +57,8 @@ class Infraction(Base):
     reason_msg_link: str
     created_at: datetime
 
-    _pool: InitVar[asqlite.Pool | None] = None
 
-    def __post_init__(self, _pool: asqlite.Pool | None = None) -> None:
+    def __post_init__(self) -> None:
         self.created_at = datetime.fromtimestamp(timestamp=self.created_at)  # type: ignore
 
     def __hash__(self) -> int:
@@ -85,9 +84,8 @@ class User(Base):
     user_infractions: set[Infraction] = field(default_factory=set)
     user_images: set[Image] = field(default_factory=set)
 
-    _pool: InitVar[asqlite.Pool | None] = None
 
-    def __post_init__(self, _pool: asqlite.Pool | None = None) -> None:
+    def __post_init__(self) -> None:
         self.created_at = datetime.fromtimestamp(timestamp=self.created_at)  # type: ignore
         self.last_active_at = datetime.fromtimestamp(timestamp=self.last_active_at)  # type: ignore
         self.verified = bool(self.verified)
@@ -97,8 +95,6 @@ class User(Base):
     def __str__(self) -> str:
         _reply = ""
         for field in fields(class_or_instance=self):
-            if field.name == "_pool":
-                continue
             _reply += f"{field.name}: {getattr(self, field.name)} "
         return _reply
         
@@ -113,9 +109,10 @@ class User(Base):
             return await func(self, *args, **kwargs)
         return wrapper_exists
 
+
     @classmethod
     async def add_or_get_user(cls, guild_id: int, user_id: int) -> Self | None:
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             _exists: Row | None = await conn.fetchone(f"""SELECT * FROM users WHERE guild_id = ? AND user_id = ?""", (guild_id, user_id))
             if _exists is None:
                 _time: float = datetime.now().timestamp()
@@ -132,7 +129,7 @@ class User(Base):
 
     @classmethod
     async def get_banned_users(cls, guild_id: int) -> list[Self]:
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             res: list[Row] = await conn.fetchall(f"""SELECT * FROM users WHERE guild_id = ? AND banned = 1""", (guild_id,))
             return [cls(**row) for row in res]
 
@@ -142,7 +139,7 @@ class User(Base):
         Get's a list of Database User classes that have not been cleaned. \n
         **AKA** - Images left in the Discord Server.
         """
-        async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             res: list[Row] = await conn.fetchall(f"""SELECT * FROM users WHERE guild_id = ? AND cleaned = 0""", (guild_id,))
             return [cls(**row) for row in res]
 

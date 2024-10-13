@@ -12,7 +12,6 @@ from typing import Any, Union
 
 import discord
 import logger
-import util.asqlite as asqlite
 from database import *
 from database.settings import Settings
 from database.user import Image, User
@@ -42,7 +41,7 @@ async def _get_prefix(bot: "MrFriendly", message: Message) -> list[str]:
     prefixes = [bot._prefix]
     if message.guild is not None:
         _guild: int = message.guild.id
-        async with asqlite.connect(database=Base.DB_FILE_PATH) as conn:
+        async with DB_Pool().connect() as conn:
             res = await conn.fetchall("""SELECT prefix FROM prefixes WHERE guild_id = ?""", _guild)
             if res is not None and len(res) >= 1:
                 prefixes: list[str] = [entry["prefix"] for entry in res]     
@@ -361,6 +360,7 @@ class MrFriendly(commands.Bot):
                 # We update the DB with the Discord Message Attachment/Image information for when the user leaves to keep privacy.
                 await _user.add_image(channel_id=message.channel.id, message_id=message.id)
 
+            del _user
             # ignore moderator messages, but handle commands.
             if isinstance(message.author, discord.Member) and message.content.startswith("!test") is False:
                 if message.author.guild_permissions.administrator is True or await self.is_owner(message.author):
@@ -368,8 +368,8 @@ class MrFriendly(commands.Bot):
                 if _settings is not None and _settings.mod_role_id is not None and message.author.get_role(_settings.mod_role_id) is not None:
                     return await super().on_message(message)
 
-            if self.nsfw_category is None:
-                await self.setup_attributes()
+            # if self.nsfw_category is None:
+            #     await self.setup_attributes()
 
             # check for posts without an attachment in specific channels
             # if found then delete it and alert the person
@@ -481,7 +481,6 @@ class MrFriendly(commands.Bot):
 
         guild: discord.Guild | None = self.get_guild(self._guild_id)
         self._settings = await Settings.add_or_get_settings(guild_id=self._guild_id)
-        
         if guild is None:
             self._logger.warning(msg=f"We failed to find the guild. | Guild ID: {self._guild_id}")
             return

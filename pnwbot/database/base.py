@@ -1,6 +1,7 @@
 import logging
 import re
 import sqlite3
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from sqlite3 import Cursor, Row
@@ -8,7 +9,7 @@ from typing import Any, Literal, Self
 
 import util.asqlite as asqlite
 
-__all__: tuple[str, ...] = ("Base",)
+__all__: tuple[str, ...] = ("Base", "DB_Pool")
 
 
 
@@ -50,9 +51,59 @@ class VersionInfo():
         return f"{self.major}.{self.minor}.{self.revision}-{self.level}"
 
 
-# TODO - Turn this into a Singleton class to limit a single set of asqlite connection pool~
+class DB_Pool:
+    _instance = None
+    _logger: logging.Logger = logging.getLogger()
+    _path: str
+    _pool: asqlite.Pool | None = None
+    dir: Path = Path(__file__).parent
+    DB_FILENAME: str = "mrfriendly.db"
+    DB_FILE_PATH: str = Path(dir).joinpath(DB_FILENAME).as_posix()
 
-class Base:
+    async def setup_pool(self) -> None:
+        if self._pool is None:
+            self._pool = await asqlite.create_pool(database= self.DB_FILE_PATH)
+
+    @classmethod
+    def get_pool(cls) -> asqlite.Pool:
+        """
+        Retrieves an existing Bridge class object.\n
+        **`DO NOT CALL THIS METHOD OUTSIDE OF AN API CLASS (ADSModule, Core, etc..)`**
+
+        Raises:
+        ---
+            ValueError: If the Bridge class does not exist.
+
+        Returns:
+        ---
+            Bridge: A singleton class of Bridge
+        """
+        
+        if cls._instance == None:
+            raise ValueError("Failed to setup connection. You need to initiate `<class Bridge>` first.")
+        if cls._instance._pool is None:
+            raise ValueError("Setup pool first...")
+        return cls._instance._pool
+
+    def __new__(cls, *args, **kwargs) -> Self:
+        if not cls._instance:
+            cls._instance = super(DB_Pool, cls).__new__(cls, *args, **kwargs)
+        return cls._instance
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._logger.debug(msg=f"DEBUG Pool __init__ as {id(self)}")
+
+    @asynccontextmanager
+    async def connect(cls):
+        """async with DB_Pool().connect() as db:"""
+        self = cls
+        await self.setup_pool()
+        pool = self.get_pool()
+        async with pool.acquire() as connection:
+            yield connection
+    
+
+class Base():
     """
     MrFriendly's DATABASE
 
@@ -64,17 +115,7 @@ class Base:
     DB_FILE_PATH: str = Path(dir).joinpath(DB_FILENAME).as_posix()
     SCHEMA_FILE_PATH: str = Path(dir).joinpath("schema.sql").as_posix()
     _logger: logging.Logger = logging.getLogger()
-    _pool: asqlite.Pool | None
-
-    def __init__(self, pool: asqlite.Pool | None = None) -> None:
-        self._pool = pool
-
-    @property
-    def pool(self) -> asqlite.Pool:
-        if self._pool is None:
-            self._logger.error(msg="Database Pool has not been initialized")
-            raise ValueError("Database Pool has not been initialized")
-        return self._pool
+    pool: asqlite.Pool | None = None
 
     async def _fetchone(self, SQL: str, parameters: tuple[Any, ...] | dict[str, Any] | None = None) -> Row | None:
         """
@@ -86,8 +127,8 @@ class Base:
         Returns:
             Row | None: A Row.
         """
-        if self._pool is None:
-            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
+        if self.pool is None:
+            self.pool = DB_Pool.get_pool()
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -106,8 +147,8 @@ class Base:
             list[Row]: A list of Rows.
         """
 
-        if self._pool is None:
-            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
+        if self.pool is None:
+            self.pool = DB_Pool.get_pool()
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -122,8 +163,8 @@ class Base:
         Args:
             SQL (str): The SQL statement.
         """
-        if self._pool is None:
-            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
+        if self.pool is None:
+            self.pool = DB_Pool.get_pool()
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -139,8 +180,8 @@ class Base:
         Args:
             SQL (str): The SQL statement.
         """
-        if self._pool is None:
-            self._pool = await asqlite.create_pool(database=self.DB_FILE_PATH)
+        if self.pool is None:
+            self.pool = DB_Pool.get_pool()
 
         async with self.pool.acquire() as conn:
             if parameters is None:
@@ -157,9 +198,10 @@ class Base:
         self._logger.info(msg=f"Initializing our Database...")
         
         with open(file=self.SCHEMA_FILE_PATH, mode="r") as f:
-            async with asqlite.connect(database=self.DB_FILE_PATH) as db:
-                async with db.cursor() as cur:
+            async with DB_Pool().connect() as conn:
+                async with conn.cursor() as cur:
                     await cur.executescript(sql_script=f.read())
+
         await self._check_update()
 
 

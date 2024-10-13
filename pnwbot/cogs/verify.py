@@ -1,9 +1,7 @@
-
 import logging
 from sqlite3 import Row
 from typing import TYPE_CHECKING
 
-import util.asqlite as asqlite
 from database import *
 from database.settings import Settings
 from discord import (CategoryChannel, Forbidden, Interaction, Member, Message,
@@ -15,14 +13,6 @@ from util.utils import MarkDownPlaceHolders, parse_markdown
 if TYPE_CHECKING:
     from main import MrFriendly
 
-
-async def _get_guild_settings(guild_id: int) -> Settings:
-    _logger = logging.getLogger()
-    async with asqlite.connect(database=Base.DB_FILE_PATH) as conn:
-        res: Row | None = await conn.fetchone("""SELECT * FROM settings WHERE guild_id = ?""", (guild_id,))
-        if res is None:
-            _logger.error(msg=f"Failed to find the Discord Guild Settings. | Guild ID: {guild_id}")
-        return Settings(**res) if res is not None else Settings(guild_id=guild_id)
 
 class Verify(commands.Cog):
     _logger: logging.Logger = logging.getLogger()
@@ -51,7 +41,7 @@ class Verify(commands.Cog):
     async def verify_on_reaction_add(self, reaction: Reaction, member: Member) -> None:
         if reaction.message.guild is None:
             return
-        _settings: Settings = await _get_guild_settings(guild_id=reaction.message.guild.id)
+        _settings: Settings = await Settings.add_or_get_settings(guild_id=reaction.message.guild.id)
         # We only care about the rules message id reactions. Doesn't matter what reaction honestly.
         if reaction.message.id == _settings.rules_message_id:
             _dbuser: User | None = await User.add_or_get_user(guild_id=reaction.message.guild.id, user_id=member.id)
@@ -67,7 +57,7 @@ class Verify(commands.Cog):
         """
         Check's the rules message for a :thumbsup: emoji reaction from the discord.Member
         """
-        _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
+        _settings: Settings = await Settings.add_or_get_settings(guild_id=member.guild.id)
         _rules_chan = member.guild.get_channel(_settings.rules_channel_id)
         if not isinstance(_rules_chan, TextChannel):
             return False
@@ -95,7 +85,7 @@ class Verify(commands.Cog):
         """
         _verified: bool = False
         _verify_category = member.guild.get_channel(1276028226166198394) #User Verification category.
-        _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
+        _settings: Settings = await Settings.add_or_get_settings(guild_id=member.guild.id)
         _dbuser: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
 
         _verified_role: Role | None =  member.guild.get_role(_settings.verified_role_id) #discord role
@@ -141,7 +131,7 @@ class Verify(commands.Cog):
     @commands.has_any_role("Moderator")
     async def verify_user(self, context: commands.Context) -> Message | None:
         assert context.guild
-        _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
+        _settings: Settings = await Settings.add_or_get_settings(guild_id=context.guild.id)
 
         if isinstance(context.channel, TextChannel) and context.channel.topic is not None and context.guild is not None:
             _content: str = f"Failed to Verify <@!{context.channel.topic}>"
@@ -190,7 +180,7 @@ class Verify(commands.Cog):
         """
         Removes a Discord Members verification status.
         """
-        _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
+        _settings: Settings = await Settings.add_or_get_settings(guild_id=member.guild.id)
         _dbuser: User | None = await User.add_or_get_user(guild_id=member.guild.id, user_id=member.id)
         # This should only happen on a failed DB query.
         if _dbuser is None:
