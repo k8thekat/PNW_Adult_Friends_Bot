@@ -17,7 +17,6 @@ import discord
 import psutil
 from discord import Interaction, app_commands
 from discord.ext import commands
-from main import _get_guild_settings
 from util.utils import count_lines, count_others
 
 # Local libs
@@ -80,7 +79,7 @@ class Util(commands.Cog):
                    "on_connect"]
     
     def __init__(self, bot: "MrFriendly") -> None:
-        self._bot: "MrFriendly" = bot
+        self.bot: "MrFriendly" = bot
         self._name: str = os.path.basename(__file__).title()
         self._logger.info(msg=f"{self.__class__.__name__} Cog has been loaded!")
 
@@ -99,7 +98,7 @@ class Util(commands.Cog):
             return
 
     def _self_check(self, message: discord.Message) -> bool:
-        return message.author == self._bot.user
+        return message.author == self.bot.user
 
     async def autocomplete_event_list(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
         return [app_commands.Choice(name= entry, value= entry) for entry in self._event_list if current.lower() in entry.lower()][:25]
@@ -112,9 +111,9 @@ class Util(commands.Cog):
         """
         await context.typing(ephemeral=True)
         assert context.guild
-        _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
+        _settings: Settings = self.bot._settings
         try:
-            await self._bot._handler.cog_auto_loader(reload=True)
+            await self.bot._handler.cog_auto_loader(reload=True)
         except Exception as e:
             self._logger.error(msg=traceback.format_exc())
             await context.send(content=f"We encountered an **Error** - \n`{e}` {traceback.format_exc()}", ephemeral=True)
@@ -130,18 +129,18 @@ class Util(commands.Cog):
         import objgraph
         from guppy import hpy
         await context.defer()
-        assert self._bot.user
+        assert self.bot.user
         assert context.guild
         app_mem = hpy().heap()
-        _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
-        information = await self._bot.application_info()
+        _settings: Settings = self.bot._settings
+        information = await self.bot.application_info()
         embed = discord.Embed()
         
         embed.set_author(name=f"Made by {information.owner.name}", icon_url=information.owner.display_avatar.url)
         memory_usage = psutil.Process().memory_full_info().uss / 1024**2
         cpu_usage: float = psutil.cpu_percent()
 
-        embed.add_field(name=f"{self._bot.user.name} info:", value=f"**Uptime:**\n{self._uptime}")
+        embed.add_field(name=f"{self.bot.user.name} info:", value=f"**Uptime:**\n{self._uptime}")
         embed.add_field(name="Process", value=f"{memory_usage:.2f} MiB\n{cpu_usage:.2f}% CPU")
         try:
             embed.add_field(name="Lines", value=f"Lines: {await count_lines('./', '.py'):,}"
@@ -164,7 +163,7 @@ class Util(commands.Cog):
     async def clear(self, interaction: discord.Interaction | commands.Context, channel: Union[discord.VoiceChannel, discord.TextChannel, discord.Thread, None], amount: app_commands.Range[int, 0, 100] = 15, all: bool = False):
         """Cleans up Messages sent by anyone. Limit 100"""
         assert interaction.guild
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         if isinstance(interaction, discord.Interaction):
             await interaction.response.send_message(content="Removing messages...", delete_after=_settings.msg_timeout)
 
@@ -185,7 +184,7 @@ class Util(commands.Cog):
         Only up to 25 characters at a time.
         """
         assert context.guild
-        _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
+        _settings: Settings = self.bot._settings
 
         def to_string(c):
             digit: str = f'{ord(c):x}'
@@ -201,8 +200,8 @@ class Util(commands.Cog):
     async def ping(self, context: commands.Context) -> None:
         """Pong..."""
         assert context.guild
-        _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
-        await context.send(content=f'Pong `{round(number=self._bot.latency * 1000)}ms`', ephemeral=True, delete_after=_settings.msg_timeout)
+        _settings: Settings = self.bot._settings
+        await context.send(content=f'Pong `{round(number=self.bot.latency * 1000)}ms`', ephemeral=True, delete_after=_settings.msg_timeout)
 
     # @app_commands.command(name='event_spoof')
     # @app_commands.autocomplete(event=autocomplete_event_list)
@@ -221,7 +220,7 @@ class Util(commands.Cog):
         """Launches an interactive REPL session."""
         variables = {
             'ctx': ctx,
-            'bot': self._bot,
+            'bot': self.bot,
             'message': ctx.message,
             'guild': ctx.guild,
             'channel': ctx.channel,
@@ -241,7 +240,7 @@ class Util(commands.Cog):
 
         while True:
             try:
-                response = await self._bot.wait_for('message', check=check, timeout=10.0 * 60.0)
+                response = await self.bot.wait_for('message', check=check, timeout=10.0 * 60.0)
             except asyncio.TimeoutError:
                 await ctx.send('Exiting REPL session.')
                 self._sessions.remove(ctx.channel.id)

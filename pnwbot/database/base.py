@@ -50,6 +50,7 @@ class VersionInfo():
         return f"{self.major}.{self.minor}.{self.revision}-{self.level}"
 
 
+# TODO - Turn this into a Singleton class to limit a single set of asqlite connection pool~
 
 class Base:
     """

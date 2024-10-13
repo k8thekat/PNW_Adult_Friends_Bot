@@ -11,7 +11,6 @@ from discord import (ButtonStyle, Embed, Emoji, Message, PartialEmoji,
                      app_commands)
 from discord.ext import commands, tasks
 from discord.ui import Button, View
-from main import _get_guild_settings
 
 if TYPE_CHECKING:
     from main import MrFriendly
@@ -43,7 +42,7 @@ class AutoRole(commands.Cog):
     _logger: logging.Logger = logging.getLogger()
 
     def __init__(self, bot: "MrFriendly") -> None:
-        self._bot: "MrFriendly" = bot
+        self.bot: "MrFriendly" = bot
         self._logger.info(msg=f"{self.__class__.__name__} Cog has been loaded!")
 
     REACTION_ROLES_BUTTON_REGEX: Pattern[str] = compile(pattern=r'RR::BUTTON::(?P<ROLE_ID>\d+)')
@@ -64,7 +63,7 @@ class AutoRole(commands.Cog):
         Validates the Role Embeds we generated and stored in our database.
         """
 
-        for guild in self._bot.guilds:
+        for guild in self.bot.guilds:
             try:
                 _guild_embeds: list[Role_Embed_Info] = await Role_Embed_Info.get_all_role_embeds(guild_id=guild.id)
             except ValueError:
@@ -72,7 +71,7 @@ class AutoRole(commands.Cog):
                 continue
 
             for embed in _guild_embeds:
-                _guild: discord.Guild | None = self._bot.get_guild(embed.guild_id)
+                _guild: discord.Guild | None = self.bot.get_guild(embed.guild_id)
                 if _guild is None:
                     continue
                 _channel = _guild.get_channel(embed.channel_id)
@@ -163,7 +162,7 @@ class AutoRole(commands.Cog):
                     _removed_role = True
                     await interaction.user.remove_roles(role, atomic=True)
 
-            _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+            _settings: Settings = self.bot._settings
             await interaction.user.add_roles(_reaction_role, atomic=True)
             return await interaction.response.send_message(content=f"Reassigned your role to {_reaction_role.mention} from {role.mention}."
                                                            if _removed_role is True else f"Gave you the role {_reaction_role.mention}.",
@@ -177,7 +176,7 @@ class AutoRole(commands.Cog):
         """Displays an Embed in a channel that Users can interact with the button to `Add` or `Remove` a role."""
         assert interaction.guild
         assert interaction.channel
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         _embed = Embed(title=f'**{embed_title}**', color=discord.Color.blurple(), description="Please select a button below to add or remove the roles. You are limited to one role at a time, selecting another role removes the previously selected role.")
         _embed.add_field(name='**What is this for?**', value=field_body)
         _roles: list[discord.Role | None] = [role1, role2, role3, role4, role5]
@@ -207,7 +206,7 @@ class AutoRole(commands.Cog):
         assert interaction.guild
         _role_embed: Role_Embed_Info = await Role_Embed_Info.get_role_embed(guild_id=interaction.guild.id, id=role_embed)
         _channel = interaction.guild.get_channel(_role_embed.channel_id)
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         if isinstance(_channel, discord.TextChannel):
             _msg: discord.Message = await _channel.fetch_message(_role_embed.message_id)
             _button = RoleButton(custom_id=f"RR::BUTTON::{role.id}", label=role.name, emoji=role.unicode_emoji)
@@ -229,7 +228,7 @@ class AutoRole(commands.Cog):
         assert interaction.guild
         _role_embed: Role_Embed_Info = await Role_Embed_Info.get_role_embed(guild_id=interaction.guild.id, id=role_embed)
         _channel = interaction.guild.get_channel(_role_embed.channel_id)
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         if not isinstance(_channel, discord.TextChannel):
             return await interaction.response.send_message(content=f"Failed to find a Text Channel for : {_role_embed.channel_id}", ephemeral=True, delete_after=_settings.msg_timeout)
         _msg: discord.Message = await _channel.fetch_message(_role_embed.message_id)

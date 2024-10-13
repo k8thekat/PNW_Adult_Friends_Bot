@@ -5,7 +5,6 @@ import discord
 from database import *
 from discord import Embed, Interaction, Message, TextChannel, app_commands
 from discord.ext import commands
-from main import _get_guild_settings
 from util.emoji_lib import Emojis
 
 if TYPE_CHECKING:
@@ -53,7 +52,7 @@ class InfractionsCog(commands.Cog):
         # https://discord.com/channels/1259645744420360243/1259645744420360246/1260721454845267978
         # 1259645744420360243
         assert interaction.guild
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         _log: int = _settings.infraction_log_channel_id
 
         _channel = interaction.guild.get_channel(_log)
@@ -89,7 +88,7 @@ class InfractionsCog(commands.Cog):
     async def remove_infraction(self, interaction: Interaction, user: Union[discord.User, discord.Member], infraction: int) -> None:
         # Since we have `guild_only()` we can assume that `context.guild` is not `None`
         assert interaction.guild
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         if infraction == 9999:
             self._logger.error(msg=f"Unable to find Infractions for Discord User. | ID: {user.id} | Name: {user.name}")
             return await interaction.response.send_message(content=f"Unable to find Infractions for {user}", ephemeral=True, delete_after=_settings.msg_timeout)
@@ -117,7 +116,7 @@ class InfractionsCog(commands.Cog):
     async def list_infractions(self, interaction: Interaction, user: Union[discord.User, discord.Member]) -> None:
         # Since we have `guild_only()` we can assume that `context.guild` is not `None`
         assert interaction.guild
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         _user: User | None = await User.add_or_get_user(guild_id=interaction.guild.id, user_id=user.id)
         if _user is None:
             return await interaction.response.send_message(content=f"Unable to find or create {user.name} in the database.", ephemeral=True, delete_after=_settings.msg_timeout)

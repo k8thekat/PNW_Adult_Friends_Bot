@@ -35,18 +35,6 @@ def load_ini() -> Any:
     else:
         raise ValueError("Failed to find `DISCORD` section in token.ini file.")
 
-async def _get_guild_settings(guild_id: int) -> Settings:
-    """
-    Get's the Database Guild Settings.
-    """
-    _logger = logging.getLogger()
-    async with asqlite.connect(database=Base.DB_FILE_PATH) as conn:
-        res: Row | None = await conn.fetchone("""SELECT * FROM settings WHERE guild_id = ?""", (guild_id,))
-        if res is None:
-            _logger.error(msg=f"Failed to find the Discord Guild Settings. | Guild ID: {guild_id}")
-        return Settings(**res) if res is not None else Settings(guild_id=guild_id)
-
-
 async def _get_prefix(bot: "MrFriendly", message: Message) -> list[str]:
     """
     Get's the Database Guild Prefixes
@@ -54,21 +42,16 @@ async def _get_prefix(bot: "MrFriendly", message: Message) -> list[str]:
     prefixes = [bot._prefix]
     if message.guild is not None:
         _guild: int = message.guild.id
-
-        async with asqlite.connect(database=Base.DB_FILE_PATH) as db:
-            async with db.cursor() as cur:
-                await cur.execute("""SELECT prefix FROM prefixes WHERE guild_id = ?""", _guild)
-                res: list[Row] = await cur. fetchall()
-                if res is not None and len(res) >= 1:
-                    prefixes: list[str] = [entry["prefix"] for entry in res]
+        async with asqlite.connect(database=Base.DB_FILE_PATH) as conn:
+            res = await conn.fetchall("""SELECT prefix FROM prefixes WHERE guild_id = ?""", _guild)
+            if res is not None and len(res) >= 1:
+                prefixes: list[str] = [entry["prefix"] for entry in res]     
 
     wmo_func = commands.when_mentioned_or(*prefixes)
     return wmo_func(bot, message)
 
 
 # TODO - Handle Suggestions-Feedback channel - Remove someones suggestion after it is sent.
-# TODO - Add an About/Stats command.
-    # - See Kuma_Kuma
 
 class MrFriendly(commands.Bot):
     """
@@ -83,6 +66,7 @@ class MrFriendly(commands.Bot):
     _inactive_time = timedelta(days=180)  # How long a person has to have not been active in the server.
     _bot_name: str = __qualname__
     _emojis = Emojis
+    _settings: Settings # Guild database settings
 
     def __init__(self) -> None:
         intents: Intents = Intents.default()
@@ -106,11 +90,11 @@ class MrFriendly(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self._database._create_tables()
+        self._client_task: asyncio.Task = asyncio.create_task(coro=self.setup_attributes())
         self.delete_pictures.start()
         self.kick_unverified_users.start()
         # self.kick_inactive_users.start() #! Disabling Until the server is popular. 8/25/2024
         self._handler = Handler(bot=self)
-        self._client_task: asyncio.Task = asyncio.create_task(coro=self.setup_attributes())
         await self._handler.cog_auto_loader()
 
     @tasks.loop(minutes=5, reconnect=True)
@@ -152,7 +136,10 @@ class MrFriendly(commands.Bot):
         """
         self._logger.info(msg="Performing kick_unverified_users loop.")
         # We need to get our verified_role_id from the settings.
-        _settings: Settings = await _get_guild_settings(guild_id=self._guild_id)
+        if hasattr(self, "_settings") is False:
+            await self.setup_attributes()
+            
+        _settings: Settings = self._settings
         _guild: discord.Guild | None = self.get_guild(self._guild_id)
         if _guild is None:
             self._logger.error(msg=f"Failed to find the Discord Guild in kick_unverified_user. | Guild ID: {self._guild_id}")
@@ -330,7 +317,7 @@ class MrFriendly(commands.Bot):
             if _bot is not None and _bot.guild_permissions.manage_roles is False:
                 self._logger.error(msg=f"{_bot.name} does not have permission to manage roles in the Discord Guild. | Guild ID: {reaction.message.guild.id}")
                 return
-            _settings: Settings = await _get_guild_settings(guild_id=reaction.message.guild.id)
+            _settings: Settings = self._settings
             if reaction.message.id is not _settings.rules_message_id:
                 return
 
@@ -365,7 +352,7 @@ class MrFriendly(commands.Bot):
             return
         # update last active time
         if message.guild is not None:
-            _settings: Settings = await _get_guild_settings(guild_id=message.guild.id)
+            _settings: Settings = self._settings
             _user: User | None = await User.add_or_get_user(guild_id=message.guild.id, user_id=message.author.id)
             if _user is not None:
                 await _user.update_last_active_at()
@@ -434,7 +421,7 @@ class MrFriendly(commands.Bot):
         This requires `Intents.members` to be enabled.
         """
         if isinstance(member.guild, discord.Guild) is True:
-            _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
+            _settings: Settings = self._settings
             _channel = member.guild.get_channel(_settings.notification_channel_id)
             if isinstance(_channel, TextChannel):
                 await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.arrow_left} {member.mention}|{member.display_name} has left the server.")
@@ -454,7 +441,7 @@ class MrFriendly(commands.Bot):
         """
         if isinstance(member.guild, discord.Guild) is True:
             self._logger.info(msg=f"{member.name} has joined {member.guild.name}.")
-            _settings: Settings = await _get_guild_settings(guild_id=member.guild.id)
+            _settings: Settings = self._settings
             _channel = member.guild.get_channel(_settings.notification_channel_id)
             if isinstance(_channel, TextChannel):
                 await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.arrow_right} {member.mention} has joined the server.")
@@ -475,7 +462,7 @@ class MrFriendly(commands.Bot):
  
         """
 
-        _settings: Settings = await _get_guild_settings(guild_id=guild.id)
+        _settings: Settings = self._settings
         _channel = guild.get_channel(_settings.notification_channel_id)
         if isinstance(_channel, TextChannel):
             await _channel.send(content=f"<t:{int(datetime.now().timestamp())}:R> | {self._emojis.no_entry} {user.mention} has been banned from the server.")
@@ -493,10 +480,11 @@ class MrFriendly(commands.Bot):
         await self.wait_until_ready()
 
         guild: discord.Guild | None = self.get_guild(self._guild_id)
+        self._settings = await Settings.add_or_get_settings(guild_id=self._guild_id)
+        
         if guild is None:
             self._logger.warning(msg=f"We failed to find the guild. | Guild ID: {self._guild_id}")
             return
-        
         for category in guild.categories:
             if category.name.lower() == "nsfw pics-videos":
                 self.nsfw_category = category
@@ -520,7 +508,7 @@ async def add_prefix(context: commands.Context, prefix: str) -> Message:
     Add a prefix to the guild.
     """
     assert context.guild
-    _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
+    _settings: Settings = Friendly._settings
     await Friendly._database._execute(SQL="""INSERT INTO prefixes(guild_id, prefix) VALUES(?, ?)""", parameters=(context.guild.id, prefix.lstrip()))
     return await context.send(content=f"Added the prefix `{prefix}` for {context.guild.name}", delete_after=_settings.msg_timeout)
 
@@ -533,7 +521,7 @@ async def delete_prefix(context: commands.Context, prefix: str) -> Message:
     Delete a prefix from the guild.
     """
     assert context.guild
-    _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
+    _settings: Settings = Friendly._settings
     await Friendly._database._execute(SQL="""DELETE FROM prefixes WHERE guild_id = ? and prefix = ?""", parameters=(context.guild.id, prefix.lstrip()))
     return await context.send(content=f"Removed the prefix - `{prefix}`", delete_after=_settings.msg_timeout)
 
@@ -546,7 +534,7 @@ async def clear_prefix(context: commands.Context) -> Message:
     Removes all prefixes for the guild.
     """
     assert context.guild
-    _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
+    _settings: Settings = Friendly._settings
     await Friendly._database._execute(SQL="""DELETE FROM prefixes WHERE guild_id = ?""", parameters=(context.guild.id,))
     return await context.send(content=f"Removed all prefix's for {context.guild.name}", delete_after=_settings.msg_timeout)
 
@@ -560,7 +548,7 @@ async def sync(context: commands.Context, local: bool = True, reset: bool = Fals
     await context.typing(ephemeral=True)
     assert Friendly.user
     assert context.guild
-    _settings: Settings = await _get_guild_settings(guild_id=context.guild.id)
+    _settings: Settings = Friendly._settings
     if ((type(reset)) == bool and (reset == True)):
         if ((type(local) == bool) and (local == True)):
             # Local command tree reset

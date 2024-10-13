@@ -116,13 +116,22 @@ class Settings(Base):
         if len(str(object=guild_id)) < 15:
             raise ValueError("Your `guild_id` value is to short. (<15)")
         async with asqlite.connect(database=cls.DB_FILE_PATH) as conn:
+            # Check if the guild id is in the database.
             _exists: Row | None = await conn.fetchone(f"""SELECT * FROM guilds WHERE guild_id = ?""", (guild_id,))
+          
             if _exists is None:
+                # It doesn't exist so we need to add it to two tables. guilds and settings.
                 await conn.execute(f"""INSERT INTO guilds(guild_id) VALUES(?)""", (guild_id,))
-            res: Row | None = await conn.fetchone(f"""INSERT INTO settings(guild_id) VALUES(?) RETURNING *""", (guild_id,))
-            if res is None:
-                cls._logger.error(msg=f"Failed to get Settings from the Database. | Guild ID: {guild_id}")
-                return cls(guild_id=guild_id)
+                res: Row | None = await conn.fetchone(f"""INSERT INTO settings(guild_id) VALUES(?) RETURNING *""", (guild_id,))
+                if res is None:
+                    cls._logger.error(msg=f"Failed to Add Settings from the Database. | Guild ID: {guild_id}")
+                    return cls(guild_id=guild_id)
+            else:
+                # It does exist so let's get all the guilds settings.
+                res: Row | None = await conn.fetchone(f"""SELECT * FROM settings WHERE guild_id = ?""", (guild_id))
+                if res is None:
+                    cls._logger.error(msg=f"Failed to Get Settings form the Database. | Guild ID: {guild_id}")
+                    return cls(guild_id=guild_id)
             return cls(**res)
 
     @exists

@@ -6,11 +6,11 @@ from database import Settings
 from discord import (Color, Embed, Interaction, Message, Role, TextChannel,
                      app_commands)
 from discord.ext import commands
-from main import _get_guild_settings
 from util.emoji_lib import Emojis
 
 if TYPE_CHECKING:
     from main import MrFriendly
+
 
 
 class SettingsEmbed(Embed):
@@ -27,9 +27,8 @@ class SettingsEmbed(Embed):
 
 class GuildSettings(commands.Cog):
     _logger: logging.Logger = logging.getLogger()
-
     def __init__(self, bot: "MrFriendly") -> None:
-        self._bot: "MrFriendly" = bot
+        self.bot: "MrFriendly" = bot
         self._logger.info(msg=f"{self.__class__.__name__} Cog has been loaded!")
 
     async def autocomplete_properties(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -60,7 +59,7 @@ class GuildSettings(commands.Cog):
     async def set_property(self, interaction: Interaction, property: str, value: str) -> None:
         assert interaction.guild
         _value = int(value)
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = await Settings.add_or_get_settings(guild_id=interaction.guild.id)
         if _value == 9999:
             _content: str = "Invalid Property selected"
         await _settings.update_property(property=property, value=_value)
@@ -74,6 +73,7 @@ class GuildSettings(commands.Cog):
             _content = f"Settings updated, set `{property}` to {_msg.jump_url if _msg is not None else _value}"
         else:
             _content = f"Settings updated, set `{property}` to `{_value}`"
+        self.bot._settings = _settings
         return await interaction.response.send_message(content=_content, ephemeral=True, delete_after=_settings.msg_timeout)
 
     @app_commands.command(name="show_settings", description="Show the current Guilds Settings.")
@@ -81,7 +81,7 @@ class GuildSettings(commands.Cog):
     @commands.has_any_role("Moderator")
     async def show_settings(self, interaction: Interaction) -> None:
         assert interaction.guild
-        _settings: Settings = await _get_guild_settings(guild_id=interaction.guild.id)
+        _settings: Settings = self.bot._settings
         _embed = SettingsEmbed(data=_settings,
                                title=f"Guild Settings | {interaction.guild.name}",
                                description=f"Current guild settings",

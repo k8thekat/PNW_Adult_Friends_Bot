@@ -47,7 +47,6 @@ class Verify(commands.Cog):
                 except Exception as e:
                     self._logger.error(msg=f"Failed to remove Verification channel - {member.display_name} -> {channel.name}")
 
-
     @commands.Cog.listener("on_reaction_add")
     async def verify_on_reaction_add(self, reaction: Reaction, member: Member) -> None:
         if reaction.message.guild is None:
@@ -64,7 +63,6 @@ class Verify(commands.Cog):
                 if chan is not None and isinstance(chan, TextChannel):
                     await chan.send(content=f"Failed to Add and or Get the Discord Member {member.id} from our Database, unable to verify the user.")
                 
-
     async def rules_reaction_check(self, member: Member) -> bool:
         """
         Check's the rules message for a :thumbsup: emoji reaction from the discord.Member
@@ -201,8 +199,6 @@ class Verify(commands.Cog):
         
         await _dbuser.update_verified(verified=False)
         return await interaction.response.send_message(content= f"Removed {member} verification status.", ephemeral= True, delete_after=_settings.msg_timeout)
-
-
 
 async def setup(bot: "MrFriendly") -> None:
     await bot.add_cog(Verify(bot=bot))
